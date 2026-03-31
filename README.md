@@ -23,7 +23,7 @@ This plugin enables bidirectional audio and video streaming between Pipecat pipe
 pip install pipecat-getstream
 ```
 
-## Quick Start
+## Quickstart
 
 ```python
 import asyncio
@@ -169,13 +169,13 @@ export STREAM_USER_ID="pipecat-bot"
 ### 2. Install dependencies
 
 ```bash
-pip install pipecat-getstream pipecat-ai[deepgram,google,silero] python-dotenv
+uv add pipecat-getstream pipecat-ai[deepgram,google,silero] python-dotenv
 ```
 
 ### 3. Run
 
 ```bash
-python example.py
+uv run example.py
 ```
 
 The bot will join the call and print a URL you can open to join as a participant.
