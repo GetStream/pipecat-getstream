@@ -1,12 +1,25 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "pipecat-getstream",
+#     "pipecat-ai[google,deepgram,silero]",
+#     "python-dotenv",
+#     "loguru",
+# ]
+#
+# [tool.uv.sources]
+# pipecat-getstream = { path = "." }
+# ///
+
 import asyncio
 import os
 import sys
 import uuid
+import webbrowser
 from urllib.parse import urlencode
 
 from dotenv import load_dotenv
 from loguru import logger
-
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
@@ -20,13 +33,26 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.services.google.llm import GoogleLLMService
-from pipecat.transports.getstream.transport import GetstreamParams, GetstreamTransport
-from pipecat.transports.getstream.utils import GetstreamRESTHelper
+
+from pipecat_getstream.transport import GetstreamParams, GetstreamTransport
+from pipecat_getstream.utils import GetstreamRESTHelper
 
 load_dotenv(override=True)
 
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
+
+
+async def _open_browser(url: str) -> None:
+    logger.info(f"🌐 Opening browser to: {url}")
+
+    try:
+        # Run webbrowser.open in a separate thread to avoid blocking the event loop
+        await asyncio.to_thread(webbrowser.open, url)
+        logger.info("✅ Browser opened successfully!")
+    except Exception as e:
+        logger.error(f"❌ Failed to open browser: {e}")
+        logger.warning(f"Please manually open this URL: {url}")
 
 
 async def main():
@@ -103,7 +129,8 @@ async def main():
     @transport.event_handler("on_connected")
     async def on_connected(*_):
         """
-        Create a demo call link once the agent joins the call.
+        Create a demo call link and automatically open it in the browser
+        once the agent joins the call.
         """
         user_id = "demo-user"
         token = helper.create_token(user_id=user_id, expiration=60)
@@ -118,7 +145,7 @@ async def main():
             "h": 1080,
         }
         call_url = f"{stream_base_url}/join/{stream_call_id}?{urlencode(params)}"
-        logger.warning(f"Open this page to join the call: {call_url}")
+        await _open_browser(call_url)
 
     @transport.event_handler("on_first_participant_joined")
     async def on_first_participant_joined(*_):

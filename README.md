@@ -151,6 +151,7 @@ async def on_first_participant_joined(transport, participant_id):
 
 The included `example.py` demonstrates a complete voice agent using Deepgram STT/TTS and Google LLM.
 
+
 ### 1. Set environment variables
 
 ```bash
@@ -166,19 +167,13 @@ export STREAM_CALL_ID="my-call-id"
 export STREAM_USER_ID="pipecat-bot"
 ```
 
-### 2. Install dependencies
-
-```bash
-uv add pipecat-getstream pipecat-ai[deepgram,google,silero] python-dotenv
-```
-
-### 3. Run
+### 2. Run
 
 ```bash
 uv run example.py
 ```
 
-The bot will join the call and print a URL you can open to join as a participant.
+The bot will join the call and automatically open a browser window so you can join as a participant.
 
 ## Compatibility
 
