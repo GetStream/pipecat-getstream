@@ -54,6 +54,13 @@ try:
     from getstream.video.rtc.connection_manager import ConnectionManager
     from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType
     from getstream.video.rtc.tracks import SubscriptionConfig, TrackSubscriptionConfig
+    import warnings
+
+    # Suppress dataclasses_json missing value RuntimeWarnings.
+    # They pollute the output and cannot be fixed by the users.
+    warnings.filterwarnings(
+        "ignore", category=RuntimeWarning, module="dataclasses_json.core"
+    )
 except ModuleNotFoundError as _e:
     logger.error(f"Exception: {_e}")
     logger.error(
