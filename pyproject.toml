@@ -45,14 +45,40 @@ allow-direct-references = true
 
 [tool.hatch.version]
 source = "vcs"
-raw-options = { root = "..", search_parent_directories = true, fallback_version = "0.0.0" }
+raw-options = { root = ".", search_parent_directories = true, fallback_version = "0.0.0" }
 
 [tool.hatch.build.targets.wheel]
-packages = ["pipecat_getstream"]
+packages = ["src/pipecat_getstream"]
 
 [tool.hatch.build.targets.sdist]
-include = ["pipecat_getstream"]
+include = ["src/pipecat_getstream"]
 
+
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+python_classes = ["Test*"]
+asyncio_mode = "auto"
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "unit: marks tests as unit tests",
+]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--timeout=60",
+    "--import-mode=importlib",
+    "--ignore=.env",
+    "--ignore=.env.local",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+log_cli = true
+log_cli_level = "INFO"
 
 [tool.mypy]
 python_version = "3.12"
