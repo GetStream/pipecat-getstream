@@ -25,7 +25,6 @@ try:
         GetstreamCallbacks,
         GetstreamParams,
         GetstreamTransportClient,
-        PipecatVideoStreamTrack,
     )
 
     GETSTREAM_AVAILABLE = True
