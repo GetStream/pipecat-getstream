@@ -182,7 +182,7 @@ The bot will join the call and print a URL you can open to join as a participant
 
 ## Compatibility
 
-- **Python:** 3.10, 3.11, 3.12, 3.13
+- **Python:** 3.10>=, <3.14
 - **Pipecat:** `>= 0.0.108`
 - **GetStream SDK:** `>= 3.0.3, < 4`
 
