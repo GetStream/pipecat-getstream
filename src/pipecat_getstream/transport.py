@@ -10,7 +10,7 @@ import json
 import time
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Any, Awaitable, Callable, Coroutine, Dict, List, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 import numpy as np
 from loguru import logger
@@ -49,7 +49,9 @@ try:
     from getstream import AsyncStream
     from getstream.models import UserRequest
     from getstream.video import rtc
+    from getstream.video.async_call import Call
     from getstream.video.rtc import AudioStreamTrack, PcmData
+    from getstream.video.rtc.connection_manager import ConnectionManager
     from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType
     from getstream.video.rtc.tracks import SubscriptionConfig, TrackSubscriptionConfig
 except ModuleNotFoundError as _e:
@@ -108,17 +110,17 @@ class GetstreamCallbacks(BaseModel):
         on_first_participant_joined: Called when the first participant joins.
     """
 
-    on_connected: Callable[[], Awaitable[None]]
-    on_disconnected: Callable[[], Awaitable[None]]
-    on_before_disconnect: Callable[[], Awaitable[None]]
-    on_participant_joined: Callable[[str], Awaitable[None]]
-    on_participant_left: Callable[[str], Awaitable[None]]
-    on_audio_track_subscribed: Callable[[str], Awaitable[None]]
-    on_audio_track_unsubscribed: Callable[[str], Awaitable[None]]
-    on_video_track_subscribed: Callable[[str], Awaitable[None]]
-    on_video_track_unsubscribed: Callable[[str], Awaitable[None]]
-    on_data_received: Callable[[bytes, str], Awaitable[None]]
-    on_first_participant_joined: Callable[[str], Awaitable[None]]
+    on_connected: Callable[[], Coroutine[None, None, None]]
+    on_disconnected: Callable[[], Coroutine[None, None, None]]
+    on_before_disconnect: Callable[[], Coroutine[None, None, None]]
+    on_participant_joined: Callable[[str], Coroutine[None, None, None]]
+    on_participant_left: Callable[[str], Coroutine[None, None, None]]
+    on_audio_track_subscribed: Callable[[str], Coroutine[None, None, None]]
+    on_audio_track_unsubscribed: Callable[[str], Coroutine[None, None, None]]
+    on_video_track_subscribed: Callable[[str], Coroutine[None, None, None]]
+    on_video_track_unsubscribed: Callable[[str], Coroutine[None, None, None]]
+    on_data_received: Callable[[bytes, str], Coroutine[None, None, None]]
+    on_first_participant_joined: Callable[[str], Coroutine[None, None, None]]
 
 
 class PipecatVideoStreamTrack(MediaStreamTrack):
@@ -255,8 +257,8 @@ class GetstreamTransportClient:
         self._transport_name = transport_name
 
         self._client: Optional[AsyncStream] = None
-        self._call = None
-        self._connection = None
+        self._call: Call | None = None
+        self._connection: ConnectionManager | None = None
         self._audio_track: Optional[AudioStreamTrack] = None
         self._video_track: Optional[PipecatVideoStreamTrack] = None
         self._audio_queue: asyncio.Queue = asyncio.Queue()
@@ -853,7 +855,7 @@ class GetstreamTransportClient:
                 f"{self}::disconnect_on_call_ended",
             )
 
-    def _create_task(self, coroutine: Coroutine | Awaitable, name: str) -> asyncio.Task:
+    def _create_task(self, coroutine: Coroutine, name: str) -> asyncio.Task:
         """Create an asyncio task via the task manager.
 
         Raises:
@@ -894,8 +896,8 @@ class GetstreamInputTransport(BaseInputTransport):
         self._transport = transport
         self._client = client
 
-        self._audio_in_task = None
-        self._video_in_task = None
+        self._audio_in_task: asyncio.Task | None = None
+        self._video_in_task: asyncio.Task | None = None
         self._resampler = create_stream_resampler()
 
         self._initialized = False

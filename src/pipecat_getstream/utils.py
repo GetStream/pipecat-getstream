@@ -69,7 +69,7 @@ class GetstreamRESTHelper:
         Returns:
             Signed JWT token string.
         """
-        kwargs = {"user_id": user_id}
+        kwargs: dict[str, str | int] = {"user_id": user_id}
         if expiration is not None:
             kwargs["expiration"] = expiration
         return self._client.create_token(**kwargs)
