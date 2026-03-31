@@ -19,16 +19,25 @@ classifiers = [
 ]
 
 requires-python = ">=3.10"
-dependencies = [
-    "getstream[webrtc,telemetry]>=3.0.3,<4",
-    "pipecat-ai>=0.0.108"
-]
+dependencies = ["getstream[webrtc,telemetry]>=3.0.4,<4", "pipecat-ai>=0.0.108"]
 
 [project.urls]
 Source = "https://github.com/GetStream/pipecat-getstream"
 
-[project.optional-dependencies]
-dev = ["pytest", "pytest-json-report", "mypy", "ruff", "click"]
+[dependency-groups]
+
+dev = [
+    "ruff",
+    "mypy[mypyc,faster-cache]",
+    "pip>=25.2",
+    "pytest",
+    "pytest-asyncio",
+    "python-dotenv",
+    "pre-commit",
+    "pytest-timeout>=2.4.0",
+    "hatch-vcs>=0.5.0",
+    "hatch>=1.14.2",
+]
 
 
 [tool.hatch.metadata]
@@ -43,3 +52,13 @@ packages = ["pipecat_getstream"]
 
 [tool.hatch.build.targets.sdist]
 include = ["pipecat_getstream"]
+
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = ["src/pipecat_getstream"]
+# Gradual typing → can tighten over time
+ignore_missing_imports = true
+check_untyped_defs = true
+namespace_packages = true
+explicit_package_bases = true
