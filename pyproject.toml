@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs", "setuptools-scm"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pipecat-getstream"
+dynamic = ["version"]
+description = "getstream.io transport support for Pipecat agents framework."
+readme = "README.md"
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Operating System :: OS Independent",
+]
+
+requires-python = ">=3.10"
+dependencies = [
+    "getstream[webrtc,telemetry]>=3.0.3,<4",
+    "pipecat-ai>=0.0.108"
+]
+
+[project.urls]
+Source = "https://github.com/GetStream/pipecat-getstream"
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-json-report", "mypy", "ruff", "click"]
+
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.version]
+source = "vcs"
+raw-options = { root = "..", search_parent_directories = true, fallback_version = "0.0.0" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["pipecat_getstream"]
+
+[tool.hatch.build.targets.sdist]
+include = ["pipecat_getstream"]
