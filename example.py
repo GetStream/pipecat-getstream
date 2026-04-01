@@ -37,7 +37,7 @@ from pipecat.services.google.llm import GoogleLLMService
 from pipecat_getstream.transport import GetstreamParams, GetstreamTransport
 from pipecat_getstream.utils import GetstreamRESTHelper
 
-load_dotenv(override=True)
+load_dotenv()
 
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
