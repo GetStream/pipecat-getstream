@@ -1,0 +1,111 @@
+name: CI
+on:
+  push:
+    branches: [ "**" ]
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.png'
+      - '**/*.jpg'
+      - '**/*.gif'
+      - '**/*.mp3'
+      - '**/*.mp4'
+      - '**/*.wav'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.dockerignore'
+      - '.git-blame-ignore-revs'
+      - 'assets/**'
+      - 'docs/**'
+      - '.coderabbit.yaml'
+      - '.cursor/**'
+      - '.claude/**'
+      - '.idea/**'
+  pull_request:
+    branches: [ "**" ]
+    paths-ignore:
+      - '**/*.md'
+      - '**/*.png'
+      - '**/*.jpg'
+      - '**/*.gif'
+      - '**/*.mp3'
+      - '**/*.mp4'
+      - '**/*.wav'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.dockerignore'
+      - '.git-blame-ignore-revs'
+      - 'assets/**'
+      - 'docs/**'
+      - '.coderabbit.yaml'
+      - '.cursor/**'
+      - '.claude/**'
+      - '.idea/**'
+
+env:
+  # If set, uv will run without updating the uv.lock file. Equivalent to the `uv run --frozen`.
+  UV_FROZEN: "1"
+
+jobs:
+  lint:
+    name: Lint (ruff + mypy + validate pyproject.toml)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
+        with:
+          python-version: "3.13"
+          version: "latest"
+          enable-cache: true
+          prune-cache: false
+          cache-suffix: "3.13"
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+      # Run ruff
+      - name: Run Ruff linter
+        run: uv run ruff check .
+      - name: Run Ruff formatter
+        run: uv run ruff format --check .
+      - name: Run mypy
+        run: uv run mypy src/pipecat_getstream
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    env:
+      STREAM_API_KEY: ${{ secrets.STREAM_API_KEY }}
+      STREAM_API_SECRET: ${{ secrets.STREAM_API_SECRET }}
+      DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
+        with:
+          python-version: ${{ matrix.python-version }}
+          version: "latest"
+          enable-cache: true
+          prune-cache: false
+          cache-suffix: ${{ matrix.python-version }}
+          cache-dependency-glob: |
+            **/pyproject.toml
+            **/uv.lock
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+      - name: Test with python ${{ matrix.python-version }}
+        run: uv run pytest -v
+
+
+# Cancel in-flight runs for the same branch/PR when new commits arrive
+concurrency:
+  group: ci-unit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
