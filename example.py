@@ -8,7 +8,7 @@
 # ]
 #
 # [tool.uv.sources]
-# pipecat-getstream = { path = "." }
+# pipecat-getstream = { path = ".", editable = true }
 # ///
 
 import asyncio
@@ -125,6 +125,13 @@ async def main():
             enable_usage_metrics=True,
         ),
     )
+
+    @transport.event_handler("on_stream_custom_event")
+    def on_stream_custom_event(*args, **kwargs):
+        """
+        A callback to react on Custom events sent to the call in Stream
+        """
+        ...
 
     @transport.event_handler("on_connected")
     async def on_connected(*_):
