@@ -6,7 +6,6 @@ and call event handling for conversational AI applications.
 """
 
 import asyncio
-import json
 import time
 from dataclasses import dataclass
 from fractions import Fraction
@@ -44,6 +43,8 @@ _PIL_TO_PYAV_FORMAT = {
 }
 
 try:
+    import warnings
+
     import av
     from aiortc import MediaStreamTrack
     from getstream import AsyncStream
@@ -54,7 +55,6 @@ try:
     from getstream.video.rtc.connection_manager import ConnectionManager
     from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType
     from getstream.video.rtc.tracks import SubscriptionConfig, TrackSubscriptionConfig
-    import warnings
 
     # Suppress dataclasses_json missing value RuntimeWarnings.
     # They pollute the output and cannot be fixed by the users.
@@ -128,6 +128,7 @@ class GetstreamCallbacks(BaseModel):
     on_video_track_unsubscribed: Callable[[str], Coroutine[None, None, None]]
     on_data_received: Callable[[bytes, str], Coroutine[None, None, None]]
     on_first_participant_joined: Callable[[str], Coroutine[None, None, None]]
+    on_custom_event: Callable[[dict], Coroutine[None, None, None]]
 
 
 class PipecatVideoStreamTrack(MediaStreamTrack):
@@ -380,6 +381,7 @@ class GetstreamTransportClient:
                 self._connection.on("track_published")(self._on_track_published)
                 self._connection.on("track_unpublished")(self._on_track_unpublished)
                 self._connection.on("call_ended")(self._on_call_ended)
+                self._connection.on("custom")(self._callbacks.on_custom_event)
 
                 # Establish the WebRTC connection
                 await self._connection.__aenter__()
@@ -468,21 +470,22 @@ class GetstreamTransportClient:
 
             await self._callbacks.on_disconnected()
 
-    async def send_data(self, data: bytes, participant_id: Optional[str] = None):
-        """Send custom event data to participants in the call.
+    async def send_custom_event(self, data: dict):
+        """Send a custom event to call participants.
+
+        Custom events are only delivered to clients that are watching the call.
+        The total payload for these events is limited to 5KB in size.
 
         Args:
-            data: The data bytes to send.
-            participant_id: Optional specific participant to target.
+            data: Dictionary of custom event data to send.
         """
         if not self._connected or not self._call:
             return
 
         try:
-            custom_data = json.loads(data.decode()) if isinstance(data, bytes) else data
-            await self._call.send_call_event(user_id=self._user_id, custom=custom_data)
+            await self._call.send_call_event(user_id=self._user_id, custom=data)
         except Exception:
-            logger.exception("Error sending data")
+            logger.exception("Error sending custom event")
 
     def get_participants(self) -> List[str]:
         """Get list of participant IDs in the call.
@@ -1129,7 +1132,7 @@ class GetstreamOutputTransport(BaseOutputTransport):
             frame: The frame to process.
             direction: The direction of frame flow in the pipeline.
         """
-        if isinstance(frame, InterruptionFrame) and self._allow_interruptions:
+        if isinstance(frame, InterruptionFrame):
             await self._client.flush_audio()
             self._audio_clock = 0.0
             self._audio_clock_total = 0.0
@@ -1158,28 +1161,6 @@ class GetstreamOutputTransport(BaseOutputTransport):
         """Clean up output transport and shared resources."""
         await super().cleanup()
         await self._transport.cleanup()
-
-    async def send_message(
-        self, frame: OutputTransportMessageFrame | OutputTransportMessageUrgentFrame
-    ):
-        """Send a transport message to participants.
-
-        Args:
-            frame: The transport message frame to send.
-        """
-        message = frame.message
-        if isinstance(message, dict):
-            message = json.dumps(message, ensure_ascii=False)
-        if isinstance(
-            frame,
-            (
-                GetstreamOutputTransportMessageFrame,
-                GetstreamOutputTransportMessageUrgentFrame,
-            ),
-        ):
-            await self._client.send_data(message.encode(), frame.participant_id)
-        else:
-            await self._client.send_data(message.encode())
 
     async def write_audio_frame(self, frame: OutputAudioRawFrame) -> bool:
         """Write an audio frame to the Stream Video call.
@@ -1292,6 +1273,7 @@ class GetstreamTransport(BaseTransport):
             on_video_track_unsubscribed=self._on_video_track_unsubscribed,
             on_data_received=self._on_data_received,
             on_first_participant_joined=self._on_first_participant_joined,
+            on_custom_event=self._on_custom_event,
         )
         self._params = params or GetstreamParams()
 
@@ -1320,6 +1302,7 @@ class GetstreamTransport(BaseTransport):
         self._register_event_handler("on_first_participant_joined")
         self._register_event_handler("on_participant_left")
         self._register_event_handler("on_before_disconnect", sync=True)
+        self._register_event_handler("on_stream_custom_event")
 
     def input(self) -> GetstreamInputTransport:
         """Get the input transport for receiving media and events.
@@ -1374,10 +1357,13 @@ class GetstreamTransport(BaseTransport):
     async def send_custom_event(self, data: dict):
         """Send a custom event to call participants.
 
+        Custom events are only delivered to clients that are watching the call.
+        The total payload for these events is limited to 5KB in size.
+
         Args:
             data: Dictionary of custom event data to send.
         """
-        await self._client.send_data(json.dumps(data).encode())
+        await self._client.send_custom_event(data)
 
     async def _on_connected(self):
         """Handle call connected events."""
@@ -1422,34 +1408,9 @@ class GetstreamTransport(BaseTransport):
             await self._input.push_app_message(data.decode(), participant_id)
         await self._call_event_handler("on_data_received", data, participant_id)
 
-    async def send_message(self, message: str, participant_id: Optional[str] = None):
-        """Send a message to participants in the call.
-
-        Args:
-            message: The message string to send.
-            participant_id: Optional specific participant to send to.
-        """
-        if self._output:
-            frame = GetstreamOutputTransportMessageFrame(
-                message=message, participant_id=participant_id
-            )
-            await self._output.send_message(frame)
-
-    async def send_message_urgent(
-        self, message: str, participant_id: Optional[str] = None
-    ):
-        """Send an urgent message to participants in the call.
-
-        Args:
-            message: The urgent message string to send.
-            participant_id: Optional specific participant to send to.
-        """
-        if self._output:
-            frame = GetstreamOutputTransportMessageUrgentFrame(
-                message=message, participant_id=participant_id
-            )
-            await self._output.send_message(frame)
-
     async def _on_first_participant_joined(self, participant_id: str):
         """Handle first participant joined events."""
         await self._call_event_handler("on_first_participant_joined", participant_id)
+
+    async def _on_custom_event(self, payload: dict):
+        await self._call_event_handler("on_stream_custom_event", payload)

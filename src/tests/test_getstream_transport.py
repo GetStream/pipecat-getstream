@@ -16,18 +16,23 @@ import numpy as np
 import pytest
 from dotenv import load_dotenv
 from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType
+from pipecat.clocks.system_clock import SystemClock
+from pipecat.frames.frames import CancelFrame, StartFrame
+from pipecat.processors.frame_processor import FrameProcessorSetup
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 
 from pipecat_getstream.transport import (
     GetstreamParams,
+    GetstreamTransport,
     GetstreamTransportClient,
 )
+from pipecat_getstream.utils import GetstreamRESTHelper
 
 load_dotenv()
 
 
-STREAM_API_KEY = os.environ.get("STREAM_API_KEY")
-STREAM_API_SECRET = os.environ.get("STREAM_API_SECRET")
+STREAM_API_KEY = os.environ.get("STREAM_API_KEY", "")
+STREAM_API_SECRET = os.environ.get("STREAM_API_SECRET", "")
 GETSTREAM_INTEGRATION_AVAILABLE = bool(STREAM_API_KEY and STREAM_API_SECRET)
 
 
@@ -99,16 +104,15 @@ class TestGetstreamParticipantLifecycle:
     reason="Requires STREAM_API_KEY and STREAM_API_SECRET env vars and getstream[webrtc]",
 )
 @pytest.mark.integration
-class TestGetstreamBidirectionalMedia:
-    """Real integration test using GetstreamTransportClient.
-
-    The bot connects via the actual transport client (connect/disconnect),
-    publishes audio+video, and a raw SDK participant verifies reception.
-    The raw participant also sends media back to verify the transport receives it.
-    """
-
+class TestGetstreamIntegration:
     async def test_simultaneous_audio_and_video_bidirectional(self, create_callbacks):
-        """GetstreamTransportClient exchanges audio+video with a real participant."""
+        """Real integration test using GetstreamTransportClient.
+
+        The bot connects via the actual transport client (connect/disconnect),
+        publishes audio+video, and a raw SDK participant verifies reception.
+        The raw participant also sends media back to verify the transport receives it.
+
+        """
         from getstream import AsyncStream
         from getstream.models import UserRequest
         from getstream.video import rtc
@@ -261,3 +265,85 @@ class TestGetstreamBidirectionalMedia:
         finally:
             await bot_client.disconnect()
             assert not bot_client._connected, "Bot should be disconnected"
+
+    async def test_custom_events(self):
+        """A custom event sent by one transport is received by another via event_handler."""
+        call_id = f"integration-test-{uuid.uuid4().hex[:8]}"
+        user_a_id = "user-a"
+        user_b_id = "user-b"
+
+        params = GetstreamParams(
+            audio_in_enabled=False,
+            audio_out_enabled=False,
+            video_in_enabled=False,
+            video_out_enabled=False,
+        )
+
+        transport_a = GetstreamTransport(
+            api_key=STREAM_API_KEY,
+            api_secret=STREAM_API_SECRET,
+            call_type="default",
+            call_id=call_id,
+            user_id=user_a_id,
+            params=params,
+        )
+        transport_b = GetstreamTransport(
+            api_key=STREAM_API_KEY,
+            api_secret=STREAM_API_SECRET,
+            call_type="default",
+            call_id=call_id,
+            user_id=user_b_id,
+            params=params,
+        )
+
+        received_event = asyncio.Event()
+        received_payload: list = []
+
+        @transport_b.event_handler("on_stream_custom_event")
+        async def on_event(_transport, payload):
+            received_payload.append(payload)
+            received_event.set()
+
+        b_joined = asyncio.Event()
+
+        @transport_a.event_handler("on_first_participant_joined")
+        async def on_b_joined(_transport, _participant_id):
+            b_joined.set()
+
+        rest = GetstreamRESTHelper(api_key=STREAM_API_KEY, api_secret=STREAM_API_SECRET)
+        await rest.create_call(
+            call_type="default", call_id=call_id, created_by_id=user_a_id
+        )
+
+        task_manager = TaskManager()
+        task_manager.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        frame_setup = FrameProcessorSetup(
+            clock=SystemClock(), task_manager=task_manager
+        )
+
+        inputs = []
+        for transport in (transport_a, transport_b):
+            input_t = transport.input()
+            await input_t.setup(frame_setup)
+            await input_t.start(StartFrame())
+            inputs.append(input_t)
+
+        async def send_until_received():
+            while not received_event.is_set():
+                await transport_a.send_custom_event({"type": "ping", "msg": "hello"})
+                await asyncio.sleep(3)
+
+        try:
+            await asyncio.wait_for(b_joined.wait(), timeout=15)
+            sender_task = asyncio.create_task(send_until_received())
+            try:
+                await asyncio.wait_for(received_event.wait(), timeout=30)
+            finally:
+                sender_task.cancel()
+
+            assert "custom" in received_payload[0]
+            assert received_payload[0]["custom"]["type"] == "ping"
+            assert received_payload[0]["custom"]["msg"] == "hello"
+        finally:
+            for input_t in inputs:
+                await input_t.cancel(CancelFrame())

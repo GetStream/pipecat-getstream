@@ -14,7 +14,7 @@ This plugin enables bidirectional audio and video streaming between Pipecat pipe
 - **Participant lifecycle events** — react to participants joining, leaving, and subscribing/unsubscribing tracks
 - **Interruption handling** — immediate audio buffer flushing when a user interrupts the agent
 - **REST helper** — manage users, calls, and authentication tokens via the GetStream API
-- **Custom events and messaging** — send and receive arbitrary data between the agent and participants
+- **Custom events** — send and receive structured JSON events between the agent and call participants (up to 5KB per event)
 - **Clock-based audio pacing** — drift-free real-time audio output
 
 ## Installation
@@ -116,6 +116,24 @@ token = helper.create_token(user_id="demo-user", expiration=3600)
 await helper.delete_call(call_type="default", call_id="my-call")
 ```
 
+## Custom Events
+
+Send structured events to everyone watching the call:
+
+```python
+await transport.send_custom_event({"type": "agent_state", "state": "thinking"})
+```
+
+Receive events from participants by registering `on_stream_custom_event`:
+
+```python
+@transport.event_handler("on_stream_custom_event")
+async def on_stream_custom_event(transport, event):
+    print(f"Got custom event: {event}")
+```
+
+Payloads are limited to 5KB. Events are delivered only to clients that are currently watching the call.
+
 ## Event Handlers
 
 Register event handlers on the transport to respond to call lifecycle events:
@@ -146,6 +164,7 @@ async def on_first_participant_joined(transport, participant_id):
 | `on_video_track_subscribed`    | `participant_id`           | Video from a participant is now being received       |
 | `on_video_track_unsubscribed`  | `participant_id`           | Video from a participant is no longer being received |
 | `on_data_received`             | `data`, `participant_id`   | Custom data/event received from a participant        |
+| `on_stream_custom_event`       | `event`                    | Custom event from a client watching the call         |
 
 ## Running the Example
 
