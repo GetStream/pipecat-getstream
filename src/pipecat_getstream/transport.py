@@ -5,8 +5,6 @@ including audio streaming, video publishing/subscribing, participant management,
 and call event handling for conversational AI applications.
 """
 
-import pdb
-
 import asyncio
 import time
 from dataclasses import dataclass
