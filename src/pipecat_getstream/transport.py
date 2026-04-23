@@ -10,7 +10,7 @@ import time
 import warnings
 from fractions import Fraction
 from typing import Callable, Coroutine, Dict, List, Optional
-
+from pipecat.processors.frame_processor import FrameProcessor
 import av
 import numpy as np
 from aiortc import MediaStreamTrack
@@ -1334,10 +1334,11 @@ class GetstreamTransport(BaseTransport):
         """Handle call ended events.
 
         If the transport is attached to a running Pipecat pipeline, request a
-        graceful shutdown via `EndTaskFrame`. Otherwise fall back to a direct
+        graceful shutdown via `EndTaskFrame`.
+        Otherwise, fall back to a direct
         disconnect so the Stream connection still gets cleaned up.
         """
-        shutdown_target = None
+        shutdown_target: FrameProcessor | None = None
         if self._input and self._input.previous:
             shutdown_target = self._input
         elif self._output and self._output.previous:
