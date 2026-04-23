@@ -8,10 +8,9 @@ and call event handling for conversational AI applications.
 import asyncio
 import time
 import warnings
-from dataclasses import dataclass
 from fractions import Fraction
-from typing import Any, Callable, Coroutine, Dict, List, Optional
-
+from typing import Callable, Coroutine, Dict, List, Optional
+from pipecat.processors.frame_processor import FrameProcessor
 import av
 import numpy as np
 from aiortc import MediaStreamTrack
@@ -29,12 +28,11 @@ from pipecat.frames.frames import (
     AudioRawFrame,
     CancelFrame,
     EndFrame,
+    EndTaskFrame,
     Frame,
     InterruptionFrame,
     OutputAudioRawFrame,
     OutputImageRawFrame,
-    OutputTransportMessageFrame,
-    OutputTransportMessageUrgentFrame,
     StartFrame,
     UserAudioRawFrame,
     UserImageRawFrame,
@@ -59,28 +57,6 @@ warnings.filterwarnings(
 )
 
 
-@dataclass
-class GetstreamOutputTransportMessageFrame(OutputTransportMessageFrame):
-    """Frame for transport messages in Stream Video calls.
-
-    Parameters:
-        participant_id: Optional ID of the participant this message is for/from.
-    """
-
-    participant_id: Optional[str] = None
-
-
-@dataclass
-class GetstreamOutputTransportMessageUrgentFrame(OutputTransportMessageUrgentFrame):
-    """Frame for urgent transport messages in Stream Video calls.
-
-    Parameters:
-        participant_id: Optional ID of the participant this message is for/from.
-    """
-
-    participant_id: Optional[str] = None
-
-
 class GetstreamParams(TransportParams):
     """Configuration parameters for Stream Video transport.
 
@@ -103,8 +79,8 @@ class GetstreamCallbacks(BaseModel):
         on_audio_track_unsubscribed: Called when an audio track is unsubscribed.
         on_video_track_subscribed: Called when a video track is subscribed.
         on_video_track_unsubscribed: Called when a video track is unsubscribed.
-        on_data_received: Called when data is received from a participant.
         on_first_participant_joined: Called when the first participant joins.
+        on_call_ended: Called when Stream reports that the call has ended.
     """
 
     on_connected: Callable[[], Coroutine[None, None, None]]
@@ -116,9 +92,9 @@ class GetstreamCallbacks(BaseModel):
     on_audio_track_unsubscribed: Callable[[str], Coroutine[None, None, None]]
     on_video_track_subscribed: Callable[[str], Coroutine[None, None, None]]
     on_video_track_unsubscribed: Callable[[str], Coroutine[None, None, None]]
-    on_data_received: Callable[[bytes, str], Coroutine[None, None, None]]
     on_first_participant_joined: Callable[[str], Coroutine[None, None, None]]
     on_custom_event: Callable[[dict], Coroutine[None, None, None]]
+    on_call_ended: Callable[[], Coroutine[None, None, None]]
 
 
 class PipecatVideoStreamTrack(MediaStreamTrack):
@@ -851,8 +827,8 @@ class GetstreamTransportClient:
         logger.info("Stream Video call ended")
         if self._connected:
             self._create_task(
-                self.disconnect(),
-                f"{self}::disconnect_on_call_ended",
+                self._callbacks.on_call_ended(),
+                f"{self}::on_call_ended",
             )
 
     def _create_task(self, coroutine: Coroutine, name: str) -> asyncio.Task:
@@ -964,18 +940,6 @@ class GetstreamInputTransport(BaseInputTransport):
         """Clean up input transport and shared resources."""
         await super().cleanup()
         await self._transport.cleanup()
-
-    async def push_app_message(self, message: Any, sender: str):
-        """Push an application message as an urgent transport frame.
-
-        Args:
-            message: The message data to send.
-            sender: ID of the message sender.
-        """
-        frame = GetstreamOutputTransportMessageUrgentFrame(
-            message=message, participant_id=sender
-        )
-        await self.push_frame(frame)
 
     async def _audio_in_task_handler(self):
         """Handle incoming audio frames from participants."""
@@ -1261,9 +1225,9 @@ class GetstreamTransport(BaseTransport):
             on_audio_track_unsubscribed=self._on_audio_track_unsubscribed,
             on_video_track_subscribed=self._on_video_track_subscribed,
             on_video_track_unsubscribed=self._on_video_track_unsubscribed,
-            on_data_received=self._on_data_received,
             on_first_participant_joined=self._on_first_participant_joined,
             on_custom_event=self._on_custom_event,
+            on_call_ended=self._on_call_ended,
         )
         self._params = params or GetstreamParams()
 
@@ -1288,7 +1252,6 @@ class GetstreamTransport(BaseTransport):
         self._register_event_handler("on_audio_track_unsubscribed")
         self._register_event_handler("on_video_track_subscribed")
         self._register_event_handler("on_video_track_unsubscribed")
-        self._register_event_handler("on_data_received")
         self._register_event_handler("on_first_participant_joined")
         self._register_event_handler("on_participant_left")
         self._register_event_handler("on_before_disconnect", sync=True)
@@ -1367,6 +1330,31 @@ class GetstreamTransport(BaseTransport):
         """Handle before disconnection events."""
         await self._call_event_handler("on_before_disconnect")
 
+    async def _on_call_ended(self):
+        """Handle call ended events.
+
+        If the transport is attached to a running Pipecat pipeline, request a
+        graceful shutdown via `EndTaskFrame`.
+        Otherwise, fall back to a direct
+        disconnect so the Stream connection still gets cleaned up.
+        """
+        shutdown_target: FrameProcessor | None = None
+        if self._input and self._input.previous:
+            shutdown_target = self._input
+        elif self._output and self._output.previous:
+            shutdown_target = self._output
+
+        if shutdown_target:
+            await shutdown_target.push_frame(
+                EndTaskFrame(reason="Stream Video call ended"),
+                FrameDirection.UPSTREAM,
+            )
+        else:
+            logger.debug(
+                "Stream Video call ended without an attached pipeline, disconnecting directly"
+            )
+            await self._client.disconnect()
+
     async def _on_participant_joined(self, participant_id: str):
         """Handle participant joined events."""
         await self._call_event_handler("on_participant_connected", participant_id)
@@ -1391,12 +1379,6 @@ class GetstreamTransport(BaseTransport):
     async def _on_video_track_unsubscribed(self, participant_id: str):
         """Handle video track unsubscribed events."""
         await self._call_event_handler("on_video_track_unsubscribed", participant_id)
-
-    async def _on_data_received(self, data: bytes, participant_id: str):
-        """Handle data received events."""
-        if self._input:
-            await self._input.push_app_message(data.decode(), participant_id)
-        await self._call_event_handler("on_data_received", data, participant_id)
 
     async def _on_first_participant_joined(self, participant_id: str):
         """Handle first participant joined events."""
