@@ -1,14 +1,5 @@
-from loguru import logger
-
-try:
-    from getstream import AsyncStream
-    from getstream.models import UserRequest
-except ModuleNotFoundError as e:
-    logger.error(f"Exception: {e}")
-    logger.error(
-        "In order to use Stream Video, you need to `pip install pipecat-ai[getstream]`."
-    )
-    raise Exception(f"Missing module: {e}")
+from getstream import AsyncStream
+from getstream.models import UserRequest
 
 
 class GetstreamRESTHelper:
