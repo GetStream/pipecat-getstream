@@ -158,21 +158,20 @@ async def on_first_participant_joined(transport, payload):
 
 ### Available Events
 
-| Event                         | Arguments                | Description                                          |
-|-------------------------------|--------------------------|------------------------------------------------------|
-| `on_connected`                | —                        | Bot has connected to the call                        |
-| `on_disconnected`             | —                        | Bot has disconnected from the call                   |
-| `on_before_disconnect`        | —                        | Called before the bot disconnects                    |
-| `on_participant_connected`    | `participant_id`         | A participant has joined the call                    |
-| `on_participant_disconnected` | `participant_id`         | A participant has left the call                      |
-| `on_participant_left`         | `participant_id`         | A participant has left the call                      |
-| `on_first_participant_joined` | `participant_id`         | The first participant has joined the call            |
-| `on_audio_track_subscribed`   | `participant_id`         | Audio from a participant is now being received       |
-| `on_audio_track_unsubscribed` | `participant_id`         | Audio from a participant is no longer being received |
-| `on_video_track_subscribed`   | `participant_id`         | Video from a participant is now being received       |
-| `on_video_track_unsubscribed` | `participant_id`         | Video from a participant is no longer being received |
-| `on_data_received`            | `data`, `participant_id` | Custom data/event received from a participant        |
-| `on_stream_custom_event`      | `event`                  | Custom event from a client watching the call         |
+| Event                         | Arguments        | Description                                          |
+|-------------------------------|------------------|------------------------------------------------------|
+| `on_connected`                | —                | Bot has connected to the call                        |
+| `on_disconnected`             | —                | Bot has disconnected from the call                   |
+| `on_before_disconnect`        | —                | Called before the bot disconnects                    |
+| `on_participant_connected`    | `participant_id` | A participant has joined the call                    |
+| `on_participant_disconnected` | `participant_id` | A participant has left the call                      |
+| `on_participant_left`         | `participant_id` | A participant has left the call                      |
+| `on_first_participant_joined` | `participant_id` | The first participant has joined the call            |
+| `on_audio_track_subscribed`   | `participant_id` | Audio from a participant is now being received       |
+| `on_audio_track_unsubscribed` | `participant_id` | Audio from a participant is no longer being received |
+| `on_video_track_subscribed`   | `participant_id` | Video from a participant is now being received       |
+| `on_video_track_unsubscribed` | `participant_id` | Video from a participant is no longer being received |
+| `on_stream_custom_event`      | `event`          | Custom event from a client watching the call         |
 
 ## Running the Example
 
