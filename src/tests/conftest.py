@@ -27,8 +27,8 @@ def create_callbacks():
             on_video_track_subscribed=AsyncMock(),
             on_video_track_unsubscribed=AsyncMock(),
             on_custom_event=AsyncMock(),
-            on_data_received=AsyncMock(),
             on_first_participant_joined=AsyncMock(),
+            on_call_ended=AsyncMock(),
         )
 
     return _factory
