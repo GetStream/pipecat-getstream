@@ -7,11 +7,22 @@ and call event handling for conversational AI applications.
 
 import asyncio
 import time
+import warnings
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
+import av
 import numpy as np
+from aiortc import MediaStreamTrack
+from getstream import AsyncStream
+from getstream.models import UserRequest
+from getstream.video import rtc
+from getstream.video.async_call import Call
+from getstream.video.rtc import AudioStreamTrack, PcmData
+from getstream.video.rtc.connection_manager import ConnectionManager
+from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType
+from getstream.video.rtc.tracks import SubscriptionConfig, TrackSubscriptionConfig
 from loguru import logger
 from pipecat.audio.utils import create_stream_resampler
 from pipecat.frames.frames import (
@@ -41,32 +52,11 @@ _PIL_TO_PYAV_FORMAT = {
     "BGR": "bgr24",
     "L": "gray",
 }
-
-try:
-    import warnings
-
-    import av
-    from aiortc import MediaStreamTrack
-    from getstream import AsyncStream
-    from getstream.models import UserRequest
-    from getstream.video import rtc
-    from getstream.video.async_call import Call
-    from getstream.video.rtc import AudioStreamTrack, PcmData
-    from getstream.video.rtc.connection_manager import ConnectionManager
-    from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType
-    from getstream.video.rtc.tracks import SubscriptionConfig, TrackSubscriptionConfig
-
-    # Suppress dataclasses_json missing value RuntimeWarnings.
-    # They pollute the output and cannot be fixed by the users.
-    warnings.filterwarnings(
-        "ignore", category=RuntimeWarning, module="dataclasses_json.core"
-    )
-except ModuleNotFoundError as _e:
-    logger.error(f"Exception: {_e}")
-    logger.error(
-        "In order to use Stream Video, you need to `pip install pipecat-ai[getstream]`."
-    )
-    raise Exception(f"Missing module: {_e}")
+# Suppress dataclasses_json missing value RuntimeWarnings.
+# They pollute the output and cannot be fixed by the users.
+warnings.filterwarnings(
+    "ignore", category=RuntimeWarning, module="dataclasses_json.core"
+)
 
 
 @dataclass
