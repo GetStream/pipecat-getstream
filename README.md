@@ -36,6 +36,7 @@ from pipecat_getstream import GetstreamTransport
 from pipecat_getstream.transport import GetstreamParams
 from pipecat_getstream.utils import GetstreamRESTHelper
 
+
 async def main():
     transport = GetstreamTransport(
         api_key="your-api-key",
@@ -51,10 +52,10 @@ async def main():
 
     pipeline = Pipeline([
         transport.input(),
-        stt,               # your STT service
-        user_aggregator,    # LLM context aggregator
-        llm,                # your LLM service
-        tts,                # your TTS service
+        stt,  # your STT service
+        user_aggregator,  # LLM context aggregator
+        llm,  # your LLM service
+        tts,  # your TTS service
         transport.output(),
         assistant_aggregator,
     ])
@@ -63,6 +64,7 @@ async def main():
     task = PipelineTask(pipeline, params=PipelineParams(enable_metrics=True))
     await runner.run(task)
 
+
 asyncio.run(main())
 ```
 
@@ -70,29 +72,29 @@ asyncio.run(main())
 
 ### GetstreamTransport
 
-| Parameter    | Type              | Description                       |
-|--------------|-------------------|-----------------------------------|
-| `api_key`    | `str`             | GetStream API key                 |
-| `api_secret` | `str`             | GetStream API secret              |
-| `call_type`  | `str`             | Call type (e.g. `"default"`)      |
-| `call_id`    | `str`             | Unique call identifier            |
-| `user_id`    | `str`             | Bot/agent user ID                 |
-| `params`     | `GetstreamParams` | Transport parameters (optional)   |
+| Parameter    | Type              | Description                     |
+|--------------|-------------------|---------------------------------|
+| `api_key`    | `str`             | GetStream API key               |
+| `api_secret` | `str`             | GetStream API secret            |
+| `call_type`  | `str`             | Call type (e.g. `"default"`)    |
+| `call_id`    | `str`             | Unique call identifier          |
+| `user_id`    | `str`             | Bot/agent user ID               |
+| `params`     | `GetstreamParams` | Transport parameters (optional) |
 
 ### GetstreamParams
 
 Extends Pipecat's `TransportParams`. Commonly used options:
 
-| Parameter              | Type   | Default | Description                       |
-|------------------------|--------|---------|-----------------------------------|
-| `audio_in_enabled`     | `bool` | `True`  | Receive audio from participants   |
-| `audio_out_enabled`    | `bool` | `True`  | Send agent audio                  |
-| `audio_in_sample_rate` | `int`  | `16000` | Input audio sample rate           |
-| `audio_out_sample_rate`| `int`  | `16000` | Output audio sample rate          |
-| `video_in_enabled`     | `bool` | `False` | Receive video from participants   |
-| `video_out_enabled`    | `bool` | `False` | Send agent video                  |
-| `video_out_framerate`  | `int`  | `30`    | Output video frame rate           |
-| `video_out_is_live`    | `bool` | `False` | Live video mode                   |
+| Parameter               | Type   | Default | Description                     |
+|-------------------------|--------|---------|---------------------------------|
+| `audio_in_enabled`      | `bool` | `True`  | Receive audio from participants |
+| `audio_out_enabled`     | `bool` | `True`  | Send agent audio                |
+| `audio_in_sample_rate`  | `int`  | `16000` | Input audio sample rate         |
+| `audio_out_sample_rate` | `int`  | `16000` | Output audio sample rate        |
+| `video_in_enabled`      | `bool` | `False` | Receive video from participants |
+| `video_out_enabled`     | `bool` | `False` | Send agent video                |
+| `video_out_framerate`   | `int`  | `30`    | Output video frame rate         |
+| `video_out_is_live`     | `bool` | `False` | Live video mode                 |
 
 ## REST Helper
 
@@ -143,33 +145,38 @@ Register event handlers on the transport to respond to call lifecycle events:
 async def on_connected(*args):
     print("Bot connected to the call")
 
+
 @transport.event_handler("on_first_participant_joined")
 async def on_first_participant_joined(transport, participant_id):
     print(f"First participant joined: {participant_id}")
+
+
+@transport.event_handler("on_stream_custom_event")
+async def on_first_participant_joined(transport, payload):
+    print(f"Received custom event: {payload}")
 ```
 
 ### Available Events
 
-| Event                          | Arguments                  | Description                                         |
-|--------------------------------|----------------------------|-----------------------------------------------------|
-| `on_connected`                 | —                          | Bot has connected to the call                       |
-| `on_disconnected`              | —                          | Bot has disconnected from the call                  |
-| `on_before_disconnect`         | —                          | Called before the bot disconnects                    |
-| `on_participant_connected`     | `participant_id`           | A participant has joined the call                   |
-| `on_participant_disconnected`  | `participant_id`           | A participant has left the call                     |
-| `on_participant_left`          | `participant_id`           | A participant has left the call                     |
-| `on_first_participant_joined`  | `participant_id`           | The first participant has joined the call            |
-| `on_audio_track_subscribed`    | `participant_id`           | Audio from a participant is now being received       |
-| `on_audio_track_unsubscribed`  | `participant_id`           | Audio from a participant is no longer being received |
-| `on_video_track_subscribed`    | `participant_id`           | Video from a participant is now being received       |
-| `on_video_track_unsubscribed`  | `participant_id`           | Video from a participant is no longer being received |
-| `on_data_received`             | `data`, `participant_id`   | Custom data/event received from a participant        |
-| `on_stream_custom_event`       | `event`                    | Custom event from a client watching the call         |
+| Event                         | Arguments                | Description                                          |
+|-------------------------------|--------------------------|------------------------------------------------------|
+| `on_connected`                | —                        | Bot has connected to the call                        |
+| `on_disconnected`             | —                        | Bot has disconnected from the call                   |
+| `on_before_disconnect`        | —                        | Called before the bot disconnects                    |
+| `on_participant_connected`    | `participant_id`         | A participant has joined the call                    |
+| `on_participant_disconnected` | `participant_id`         | A participant has left the call                      |
+| `on_participant_left`         | `participant_id`         | A participant has left the call                      |
+| `on_first_participant_joined` | `participant_id`         | The first participant has joined the call            |
+| `on_audio_track_subscribed`   | `participant_id`         | Audio from a participant is now being received       |
+| `on_audio_track_unsubscribed` | `participant_id`         | Audio from a participant is no longer being received |
+| `on_video_track_subscribed`   | `participant_id`         | Video from a participant is now being received       |
+| `on_video_track_unsubscribed` | `participant_id`         | Video from a participant is no longer being received |
+| `on_data_received`            | `data`, `participant_id` | Custom data/event received from a participant        |
+| `on_stream_custom_event`      | `event`                  | Custom event from a client watching the call         |
 
 ## Running the Example
 
 The included `example.py` demonstrates a complete voice agent using Deepgram STT/TTS and Google LLM.
-
 
 ### 1. Set environment variables
 
@@ -198,7 +205,7 @@ The bot will join the call and automatically open a browser window so you can jo
 
 - **Python:** 3.10>=, <3.14
 - **Pipecat:** `>= 0.0.108`
-- **GetStream SDK:** `>= 3.0.3, < 4`
+- **GetStream SDK:** `>= 3.3.0, < 4`
 
 ## License
 

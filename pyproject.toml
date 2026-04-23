@@ -6,9 +6,19 @@ build-backend = "hatchling.build"
 name = "pipecat-getstream"
 dynamic = ["version"]
 description = "getstream.io transport support for Pipecat agents framework."
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 readme = "README.md"
+keywords = ["webrtc", "audio", "video", "streaming", "ai", "getstream", "pipecat"]
 
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Communications :: Conferencing",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -22,7 +32,9 @@ requires-python = ">=3.10"
 dependencies = ["getstream[webrtc,telemetry]>=3.3.0,<4", "pipecat-ai>=0.0.108"]
 
 [project.urls]
+Homepage = "https://github.com/GetStream/pipecat-getstream"
 Source = "https://github.com/GetStream/pipecat-getstream"
+Issues = "https://github.com/GetStream/pipecat-getstream/issues"
 
 [dependency-groups]
 
