@@ -1,6 +1,6 @@
 # pipecat-getstream
 
-[![PyPI](https://img.shields.io/pypi/v/pipecat-getstream.svg)](https://pypi.org/project/pipecat-getstream/)
+[![PyPI](https://img.shields.io/pypi/v/pipecat-getstream)](https://pypi.org/project/pipecat-getstream/)
 
 A [GetStream.io](https://getstream.io/) WebRTC transport for [Pipecat](https://github.com/pipecat-ai/pipecat) — the open-source framework for building conversational AI agents.
 
