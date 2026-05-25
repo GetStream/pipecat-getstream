@@ -201,28 +201,36 @@ class GetstreamTransportClient:
     def __init__(
         self,
         api_key: str,
-        api_secret: str,
         call_type: str,
         call_id: str,
         user_id: str,
         params: GetstreamParams,
         callbacks: GetstreamCallbacks,
         transport_name: str,
+        api_secret: Optional[str] = None,
+        token: Optional[str] = None,
     ):
         """Initialize the Stream Video transport client.
 
         Args:
             api_key: Stream Video API key.
-            api_secret: Stream Video API secret.
             call_type: The Stream call type (e.g. "default").
             call_id: Unique call identifier.
             user_id: The bot/agent user ID.
             params: Configuration parameters for the transport.
             callbacks: Event callback handlers.
             transport_name: Name identifier for the transport.
+            api_secret: Stream Video API secret. Mutually exclusive with token.
+            token: Pre-minted user JWT for the bot. Mutually exclusive with api_secret.
         """
+        if api_secret and token:
+            raise ValueError("Pass either api_secret or token, not both")
+        if not api_secret and not token:
+            raise ValueError("Either api_secret or token is required")
+
         self._api_key = api_key
         self._api_secret = api_secret
+        self._token = token
         self._call_type = call_type
         self._call_id = call_id
         self._user_id = user_id
@@ -277,15 +285,22 @@ class GetstreamTransportClient:
             return
 
         self._task_manager = setup.task_manager
-        self._client = AsyncStream(api_key=self._api_key, api_secret=self._api_secret)
-
-        # Ensure the bot user exists
-        try:
-            await self._client.upsert_users(
-                UserRequest(id=self._user_id, name=self._user_id)
+        if self._token:
+            # The client is created from a scoped token.
+            # The user associated with this token already exists.
+            self._client = AsyncStream(api_key=self._api_key, token=self._token)
+        else:
+            # The client is created from api secret and typically has more permissions.
+            # Ensure the agent user exists in Stream.
+            self._client = AsyncStream(
+                api_key=self._api_key, api_secret=self._api_secret
             )
-        except Exception as exc:
-            logger.warning(f"Could not create user {self._user_id}: {exc}")
+            try:
+                await self._client.upsert_users(
+                    UserRequest(id=self._user_id, name=self._user_id)
+                )
+            except Exception as exc:
+                logger.warning(f"Could not create user {self._user_id}: {exc}")
 
     async def cleanup(self):
         """Clean up client resources."""
@@ -1193,25 +1208,27 @@ class GetstreamTransport(BaseTransport):
     def __init__(
         self,
         api_key: str,
-        api_secret: str,
         call_type: str,
         call_id: str,
         user_id: str,
         params: Optional[GetstreamParams] = None,
         input_name: Optional[str] = None,
         output_name: Optional[str] = None,
+        api_secret: Optional[str] = None,
+        token: Optional[str] = None,
     ):
         """Initialize the Stream Video transport.
 
         Args:
             api_key: Stream Video API key.
-            api_secret: Stream Video API secret.
             call_type: The Stream call type (e.g. "default").
             call_id: Unique call identifier.
             user_id: The bot/agent user ID.
             params: Configuration parameters for the transport.
             input_name: Optional name for the input transport.
             output_name: Optional name for the output transport.
+            api_secret: Stream Video API secret. Mutually exclusive with token.
+            token: Pre-minted user JWT for the bot. Mutually exclusive with api_secret.
         """
         super().__init__(input_name=input_name, output_name=output_name)
 
@@ -1232,14 +1249,15 @@ class GetstreamTransport(BaseTransport):
         self._params = params or GetstreamParams()
 
         self._client = GetstreamTransportClient(
-            api_key,
-            api_secret,
-            call_type,
-            call_id,
-            user_id,
-            self._params,
-            callbacks,
-            self.name,
+            api_key=api_key,
+            call_type=call_type,
+            call_id=call_id,
+            user_id=user_id,
+            params=self._params,
+            callbacks=callbacks,
+            transport_name=self.name,
+            api_secret=api_secret,
+            token=token,
         )
         self._input: Optional[GetstreamInputTransport] = None
         self._output: Optional[GetstreamOutputTransport] = None
