@@ -15,6 +15,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 from dotenv import load_dotenv
+from getstream import AsyncStream
+from getstream.models import UserRequest
 from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType
 from pipecat.clocks.system_clock import SystemClock
 from pipecat.frames.frames import CancelFrame, StartFrame
@@ -97,6 +99,48 @@ class TestGetstreamParticipantLifecycle:
         client._on_participant_left(left_event)
         assert "user-A" not in client._participants
         assert not client._other_participant_has_joined
+
+
+class TestGetstreamTransport:
+    """Constructor validation for credential modes (api_secret vs token)."""
+
+    def test_construct_with_api_secret(self):
+        GetstreamTransport(
+            api_key="k",
+            api_secret="s",
+            call_type="default",
+            call_id="c",
+            user_id="u",
+        )
+
+    def test_construct_with_token(self):
+        GetstreamTransport(
+            api_key="k",
+            token="jwt",
+            call_type="default",
+            call_id="c",
+            user_id="u",
+        )
+
+    def test_rejects_both_api_secret_and_token(self):
+        with pytest.raises(ValueError, match="Pass either api_secret or token"):
+            GetstreamTransport(
+                api_key="k",
+                api_secret="s",
+                token="jwt",
+                call_type="default",
+                call_id="c",
+                user_id="u",
+            )
+
+    def test_rejects_neither_api_secret_nor_token(self):
+        with pytest.raises(ValueError, match="Either api_secret or token is required"):
+            GetstreamTransport(
+                api_key="k",
+                call_type="default",
+                call_id="c",
+                user_id="u",
+            )
 
 
 @pytest.mark.skipif(
@@ -347,3 +391,57 @@ class TestGetstreamIntegration:
         finally:
             for input_t in inputs:
                 await input_t.cancel(CancelFrame())
+
+    async def test_join_with_preminted_token(self):
+        """A transport joins a call using a pre-minted user token (no api_secret).
+
+        An admin AsyncStream client (api_key+api_secret) creates the call and
+        mints a JWT for the bot. GetstreamTransport then joins using only that
+        token + api_key, exercising the token-only auth path end-to-end.
+        """
+
+        call_id = f"integration-test-token-{uuid.uuid4().hex[:8]}"
+        bot_user_id = f"bot-{uuid.uuid4().hex[:6]}"
+
+        admin = AsyncStream(api_key=STREAM_API_KEY, api_secret=STREAM_API_SECRET)
+        await admin.upsert_users(UserRequest(id=bot_user_id, name="Bot"))
+        await admin.video.call("default", call_id).get_or_create(
+            data={"created_by_id": bot_user_id}
+        )
+        bot_token = admin.create_token(user_id=bot_user_id, expiration=300)
+
+        params = GetstreamParams(
+            audio_in_enabled=False,
+            audio_out_enabled=False,
+            video_in_enabled=False,
+            video_out_enabled=False,
+        )
+        transport = GetstreamTransport(
+            api_key=STREAM_API_KEY,
+            token=bot_token,
+            call_type="default",
+            call_id=call_id,
+            user_id=bot_user_id,
+            params=params,
+        )
+
+        connected = asyncio.Event()
+
+        @transport.event_handler("on_connected")
+        async def on_connected(*_):
+            connected.set()
+
+        task_manager = TaskManager()
+        task_manager.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+        frame_setup = FrameProcessorSetup(
+            clock=SystemClock(), task_manager=task_manager
+        )
+
+        input_t = transport.input()
+        await input_t.setup(frame_setup)
+        await input_t.start(StartFrame())
+
+        try:
+            await asyncio.wait_for(connected.wait(), timeout=15)
+        finally:
+            await input_t.cancel(CancelFrame())
