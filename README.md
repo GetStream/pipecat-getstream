@@ -14,6 +14,7 @@ This plugin enables bidirectional audio and video streaming between Pipecat pipe
 - **Participant lifecycle events** — react to participants joining, leaving, and subscribing/unsubscribing tracks
 - **Interruption handling** — immediate audio buffer flushing when a user interrupts the agent
 - **REST helper** — manage users, calls, and authentication tokens via the GetStream API
+- **Flexible authentication** — connect with an API secret or a pre-minted scoped user token, keeping secrets out of the agent
 - **Custom events** — send and receive structured JSON events between the agent and call participants (up to 5KB per event)
 - **Clock-based audio pacing** — drift-free real-time audio output
 
@@ -75,11 +76,27 @@ asyncio.run(main())
 | Parameter    | Type              | Description                     |
 |--------------|-------------------|---------------------------------|
 | `api_key`    | `str`             | GetStream API key               |
-| `api_secret` | `str`             | GetStream API secret            |
+| `api_secret` | `str \| None`     | GetStream API secret            |
+| `token`      | `str \| None`     | Pre-minted scoped user token    |
 | `call_type`  | `str`             | Call type (e.g. `"default"`)    |
 | `call_id`    | `str`             | Unique call identifier          |
 | `user_id`    | `str`             | Bot/agent user ID               |
 | `params`     | `GetstreamParams` | Transport parameters (optional) |
+
+Provide **exactly one** of `api_secret` or `token`:
+
+- **`api_secret`** — full app credentials; the transport upserts the bot user on connect.
+- **`token`** — a pre-minted, scoped user JWT for the bot, so your API secret never reaches the agent process. The bot user must already exist. Mint tokens server-side with `GetstreamRESTHelper.create_token`.
+
+```python
+transport = GetstreamTransport(
+    api_key="your-api-key",
+    token="bot-user-jwt",  # instead of api_secret
+    call_type="default",
+    call_id="my-call-id",
+    user_id="pipecat-bot",
+)
+```
 
 ### GetstreamParams
 
@@ -204,7 +221,7 @@ The bot will join the call and automatically open a browser window so you can jo
 
 - **Python:** 3.10>=, <3.14
 - **Pipecat:** `>= 0.0.108`
-- **GetStream SDK:** `>= 3.3.0, < 4`
+- **GetStream SDK:** `>= 3.4.0, < 4`
 
 ## License
 
