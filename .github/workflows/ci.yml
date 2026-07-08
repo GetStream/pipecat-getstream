@@ -45,6 +45,10 @@ env:
   # If set, uv will run without updating the uv.lock file. Equivalent to the `uv run --frozen`.
   UV_FROZEN: "1"
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   lint:
     name: Lint (ruff + mypy + validate pyproject.toml)
