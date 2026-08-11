@@ -430,7 +430,7 @@ class GetstreamTransportClient:
             if self._connection:
                 try:
                     await asyncio.wait_for(self._connection.leave(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning(
                         "Timeout leaving Stream Video call, forcing disconnect"
                     )
