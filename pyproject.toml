@@ -66,6 +66,9 @@ packages = ["src/pipecat_getstream"]
 include = ["src/pipecat_getstream"]
 
 
+[tool.ruff.lint]
+ignore = ["BLE001"]
+
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
 python_files = ["test_*.py"]
