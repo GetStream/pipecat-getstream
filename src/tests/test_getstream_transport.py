@@ -18,9 +18,7 @@ from dotenv import load_dotenv
 from getstream import AsyncStream
 from getstream.models import UserRequest
 from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType
-from pipecat.clocks.system_clock import SystemClock
-from pipecat.frames.frames import CancelFrame, StartFrame
-from pipecat.processors.frame_processor import FrameProcessorSetup
+from pipecat.frames.frames import UserAudioRawFrame
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
 
 from pipecat_getstream.transport import (
@@ -99,6 +97,25 @@ class TestGetstreamParticipantLifecycle:
         client._on_participant_left(left_event)
         assert "user-A" not in client._participants
         assert not client._other_participant_has_joined
+
+
+class TestGetstreamInputTransport:
+    """Audio input path: PcmData from the call turned into pipeline frames."""
+
+    async def test_emitted_user_audio_frames_carry_pts(
+        self, input_transport, make_pcm_data
+    ):
+        """Every emitted UserAudioRawFrame carries the chunk timestamp in nanoseconds."""
+        client, received = input_transport
+
+        for pts in (0, 960, 1920):
+            client._on_audio(make_pcm_data("user-A", pts=pts))
+
+        frames = [await asyncio.wait_for(received.get(), timeout=2) for _ in range(3)]
+
+        assert all(isinstance(frame, UserAudioRawFrame) for frame in frames)
+        assert [frame.user_id for frame in frames] == ["user-A"] * 3
+        assert [frame.pts for frame in frames] == [0, 20_000_000, 40_000_000]
 
 
 class TestGetstreamTransport:
@@ -310,7 +327,7 @@ class TestGetstreamIntegration:
             await bot_client.disconnect()
             assert not bot_client._connected, "Bot should be disconnected"
 
-    async def test_custom_events(self):
+    async def test_custom_events(self, run_pipeline):
         """A custom event sent by one transport is received by another via event_handler."""
         call_id = f"integration-test-{uuid.uuid4().hex[:8]}"
         user_a_id = "user-a"
@@ -359,40 +376,26 @@ class TestGetstreamIntegration:
             call_type="default", call_id=call_id, created_by_id=user_a_id
         )
 
-        task_manager = TaskManager()
-        task_manager.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
-        frame_setup = FrameProcessorSetup(
-            clock=SystemClock(), task_manager=task_manager
-        )
-
-        inputs = []
         for transport in (transport_a, transport_b):
-            input_t = transport.input()
-            await input_t.setup(frame_setup)
-            await input_t.start(StartFrame())
-            inputs.append(input_t)
+            await run_pipeline(transport.input())
 
         async def send_until_received():
             while not received_event.is_set():
                 await transport_a.send_custom_event({"type": "ping", "msg": "hello"})
                 await asyncio.sleep(3)
 
+        await asyncio.wait_for(b_joined.wait(), timeout=15)
+        sender_task = asyncio.create_task(send_until_received())
         try:
-            await asyncio.wait_for(b_joined.wait(), timeout=15)
-            sender_task = asyncio.create_task(send_until_received())
-            try:
-                await asyncio.wait_for(received_event.wait(), timeout=30)
-            finally:
-                sender_task.cancel()
-
-            assert "custom" in received_payload[0]
-            assert received_payload[0]["custom"]["type"] == "ping"
-            assert received_payload[0]["custom"]["msg"] == "hello"
+            await asyncio.wait_for(received_event.wait(), timeout=30)
         finally:
-            for input_t in inputs:
-                await input_t.cancel(CancelFrame())
+            sender_task.cancel()
 
-    async def test_join_with_preminted_token(self):
+        assert "custom" in received_payload[0]
+        assert received_payload[0]["custom"]["type"] == "ping"
+        assert received_payload[0]["custom"]["msg"] == "hello"
+
+    async def test_join_with_preminted_token(self, run_pipeline):
         """A transport joins a call using a pre-minted user token (no api_secret).
 
         An admin AsyncStream client (api_key+api_secret) creates the call and
@@ -431,17 +434,6 @@ class TestGetstreamIntegration:
         async def on_connected(*_):
             connected.set()
 
-        task_manager = TaskManager()
-        task_manager.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
-        frame_setup = FrameProcessorSetup(
-            clock=SystemClock(), task_manager=task_manager
-        )
+        await run_pipeline(transport.input())
 
-        input_t = transport.input()
-        await input_t.setup(frame_setup)
-        await input_t.start(StartFrame())
-
-        try:
-            await asyncio.wait_for(connected.wait(), timeout=15)
-        finally:
-            await input_t.cancel(CancelFrame())
+        await asyncio.wait_for(connected.wait(), timeout=15)

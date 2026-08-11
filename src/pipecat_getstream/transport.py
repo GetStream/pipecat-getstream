@@ -10,7 +10,7 @@ import time
 import warnings
 from fractions import Fraction
 from typing import Callable, Coroutine, Dict, List, Optional
-from pipecat.processors.frame_processor import FrameProcessor
+
 import av
 import numpy as np
 from aiortc import MediaStreamTrack
@@ -37,11 +37,16 @@ from pipecat.frames.frames import (
     UserAudioRawFrame,
     UserImageRawFrame,
 )
-from pipecat.processors.frame_processor import FrameDirection, FrameProcessorSetup
+from pipecat.processors.frame_processor import (
+    FrameDirection,
+    FrameProcessor,
+    FrameProcessorSetup,
+)
 from pipecat.transports.base_input import BaseInputTransport
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.utils.asyncio.task_manager import BaseTaskManager
+from pipecat.utils.time import seconds_to_nanoseconds
 from pydantic import BaseModel
 
 _PIL_TO_PYAV_FORMAT = {
@@ -969,13 +974,15 @@ class GetstreamInputTransport(BaseInputTransport):
 
                 if len(pipecat_audio_frame.audio) == 0:
                     continue
-
                 input_audio_frame = UserAudioRawFrame(
                     user_id=participant_id,
                     audio=pipecat_audio_frame.audio,
                     sample_rate=pipecat_audio_frame.sample_rate,
                     num_channels=pipecat_audio_frame.num_channels,
                 )
+                pts_seconds = pcm_data.pts_seconds
+                if pts_seconds is not None:
+                    input_audio_frame.pts = seconds_to_nanoseconds(pts_seconds)
                 await self.push_audio_frame(input_audio_frame)
 
     async def _video_in_task_handler(self):
