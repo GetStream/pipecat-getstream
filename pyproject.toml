@@ -29,7 +29,7 @@ classifiers = [
 ]
 
 requires-python = ">=3.10"
-dependencies = ["getstream[webrtc,telemetry]>=3.4.0,<4", "pipecat-ai>=0.0.108"]
+dependencies = ["getstream[webrtc,telemetry]>=4.2.0,<5", "pipecat-ai>=0.0.108"]
 
 [project.urls]
 Homepage = "https://github.com/GetStream/pipecat-getstream"
