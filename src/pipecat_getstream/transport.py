@@ -948,7 +948,8 @@ class GetstreamInputTransport(BaseInputTransport):
         if self._video_in_task and self._params.video_in_enabled:
             await self.cancel_task(self._video_in_task)
 
-    async def setup(self, setup: FrameProcessorSetup):
+    # Pipecat's FrameProcessor.setup() already narrows BaseObject.setup(task_manager).
+    async def setup(self, setup: FrameProcessorSetup):  # type: ignore[override]
         """Set up the input transport with shared client setup.
 
         Args:
@@ -1125,7 +1126,8 @@ class GetstreamOutputTransport(BaseOutputTransport):
         await super().cancel(frame)
         await self._client.disconnect()
 
-    async def setup(self, setup: FrameProcessorSetup):
+    # Pipecat's FrameProcessor.setup() already narrows BaseObject.setup(task_manager).
+    async def setup(self, setup: FrameProcessorSetup):  # type: ignore[override]
         """Set up the output transport with shared client setup.
 
         Args:
