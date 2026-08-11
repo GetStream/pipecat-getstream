@@ -1,14 +1,30 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+import numpy as np
 import pytest
+from getstream.video.rtc import PcmData
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker import PipelineWorker
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.tests.utils import QueuedFrameProcessor
 from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
+from pipecat.workers.runner import WorkerRunner
 
 from pipecat_getstream.transport import (
     GetstreamCallbacks,
+    GetstreamInputTransport,
     GetstreamParams,
+    GetstreamTransport,
     GetstreamTransportClient,
 )
+
+
+class _OfflineClient(GetstreamTransportClient):
+    """Client that skips the SFU join, so the input transport runs without a call."""
+
+    async def connect(self):
+        pass
 
 
 @pytest.fixture()
@@ -123,11 +139,87 @@ def make_track_unpublished_event(make_participant):
 
 @pytest.fixture()
 def make_pcm_data(make_participant):
-    """Factory that creates a mock PcmData with .participant attribute."""
+    """Factory that creates a 20ms silent 48kHz PcmData chunk from a participant."""
 
-    def _factory(user_id: str, session_id: str = "session-1"):
-        pcm = MagicMock()
-        pcm.participant = make_participant(user_id, session_id)
-        return pcm
+    def _factory(
+        user_id: str,
+        session_id: str = "session-1",
+        pts: int | None = None,
+    ) -> PcmData:
+        return PcmData(
+            sample_rate=48000,
+            format="s16",
+            samples=np.zeros(960, dtype=np.int16),
+            pts=pts,
+            time_base=1 / 48000,
+            participant=make_participant(user_id, session_id),
+        )
 
     return _factory
+
+
+@pytest.fixture()
+async def run_pipeline():
+    """Factory that runs processors in a PipelineWorker for the duration of the test."""
+    running: list[tuple[PipelineWorker, asyncio.Task]] = []
+
+    async def _factory(*processors: FrameProcessor) -> PipelineWorker:
+        worker = PipelineWorker(
+            Pipeline(list(processors)),
+            cancel_on_idle_timeout=False,
+            enable_rtvi=False,
+        )
+        started = asyncio.Event()
+
+        @worker.event_handler("on_pipeline_started")
+        async def on_pipeline_started(_worker, _frame):
+            started.set()
+
+        runner = WorkerRunner(handle_sigint=False)
+        run_task = asyncio.create_task(runner.run(worker))
+        running.append((worker, run_task))
+        await asyncio.wait_for(started.wait(), timeout=30)
+        return worker
+
+    yield _factory
+
+    for worker, run_task in running:
+        await worker.cancel()
+        await run_task
+
+
+@pytest.fixture()
+async def input_transport(create_callbacks, run_pipeline):
+    """A started GetstreamInputTransport's client and a downstream frame queue.
+
+    The client skips the SFU join, so audio can be fed in with `client._on_audio()`
+    and read back from the queue as the transport pushes it downstream.
+    """
+    params = GetstreamParams(audio_in_enabled=True, audio_in_sample_rate=48000)
+    transport = GetstreamTransport(
+        api_key="test-key",
+        token="test-token",
+        call_type="default",
+        call_id="test-call",
+        user_id="bot-user",
+        params=params,
+    )
+    client = _OfflineClient(
+        api_key="test-key",
+        token="test-token",
+        call_type="default",
+        call_id="test-call",
+        user_id="bot-user",
+        params=params,
+        callbacks=create_callbacks(),
+        transport_name="test-transport",
+    )
+    input_t = GetstreamInputTransport(transport, client, params)
+
+    received: asyncio.Queue = asyncio.Queue()
+    sink = QueuedFrameProcessor(
+        queue=received, queue_direction=FrameDirection.DOWNSTREAM
+    )
+    await run_pipeline(input_t, sink)
+
+    return client, received

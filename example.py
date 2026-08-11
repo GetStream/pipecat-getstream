@@ -131,7 +131,6 @@ async def main():
         """
         A callback to react on Custom events sent to the call in Stream
         """
-        ...
 
     @transport.event_handler("on_connected")
     async def on_connected(*_):

@@ -28,8 +28,8 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-requires-python = ">=3.10"
-dependencies = ["getstream[webrtc,telemetry]>=3.4.0,<4", "pipecat-ai>=0.0.108"]
+requires-python = ">=3.11"
+dependencies = ["getstream[webrtc,telemetry]>=4.2.0,<5", "pipecat-ai>=0.0.108"]
 
 [project.urls]
 Homepage = "https://github.com/GetStream/pipecat-getstream"
@@ -65,6 +65,9 @@ packages = ["src/pipecat_getstream"]
 [tool.hatch.build.targets.sdist]
 include = ["src/pipecat_getstream"]
 
+
+[tool.ruff.lint]
+ignore = ["BLE001"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]

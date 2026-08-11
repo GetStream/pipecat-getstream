@@ -8,9 +8,9 @@ and call event handling for conversational AI applications.
 import asyncio
 import time
 import warnings
+from collections.abc import Callable, Coroutine
 from fractions import Fraction
-from typing import Callable, Coroutine, Dict, List, Optional
-from pipecat.processors.frame_processor import FrameProcessor
+
 import av
 import numpy as np
 from aiortc import MediaStreamTrack
@@ -37,11 +37,16 @@ from pipecat.frames.frames import (
     UserAudioRawFrame,
     UserImageRawFrame,
 )
-from pipecat.processors.frame_processor import FrameDirection, FrameProcessorSetup
+from pipecat.processors.frame_processor import (
+    FrameDirection,
+    FrameProcessor,
+    FrameProcessorSetup,
+)
 from pipecat.transports.base_input import BaseInputTransport
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.utils.asyncio.task_manager import BaseTaskManager
+from pipecat.utils.time import seconds_to_nanoseconds
 from pydantic import BaseModel
 
 _PIL_TO_PYAV_FORMAT = {
@@ -62,8 +67,6 @@ class GetstreamParams(TransportParams):
 
     Inherits all parameters from TransportParams without additional configuration.
     """
-
-    pass
 
 
 class GetstreamCallbacks(BaseModel):
@@ -115,13 +118,13 @@ class PipecatVideoStreamTrack(MediaStreamTrack):
         super().__init__()
         self._framerate = framerate
         self._queue: asyncio.Queue = asyncio.Queue()
-        self._start_time: Optional[float] = None
+        self._start_time: float | None = None
         self._frame_count = 0
-        self._last_frame: Optional[av.VideoFrame] = None
+        self._last_frame: av.VideoFrame | None = None
         self._pts = 0
         self._time_base_den = 90000  # Standard WebRTC clock rate
 
-    def write(self, image: bytes, size: tuple, format: Optional[str]):
+    def write(self, image: bytes, size: tuple, format: str | None):
         """Write an image frame to the track for WebRTC publishing.
 
         Args:
@@ -207,8 +210,8 @@ class GetstreamTransportClient:
         params: GetstreamParams,
         callbacks: GetstreamCallbacks,
         transport_name: str,
-        api_secret: Optional[str] = None,
-        token: Optional[str] = None,
+        api_secret: str | None = None,
+        token: str | None = None,
     ):
         """Initialize the Stream Video transport client.
 
@@ -238,29 +241,29 @@ class GetstreamTransportClient:
         self._callbacks = callbacks
         self._transport_name = transport_name
 
-        self._client: Optional[AsyncStream] = None
+        self._client: AsyncStream | None = None
         self._call: Call | None = None
         self._connection: ConnectionManager | None = None
-        self._audio_track: Optional[AudioStreamTrack] = None
-        self._video_track: Optional[PipecatVideoStreamTrack] = None
+        self._audio_track: AudioStreamTrack | None = None
+        self._video_track: PipecatVideoStreamTrack | None = None
         self._audio_queue: asyncio.Queue = asyncio.Queue()
         self._video_queue: asyncio.Queue = asyncio.Queue()
         self._connected = False
         self._disconnect_counter = 0
         self._other_participant_has_joined = False
-        self._task_manager: Optional[BaseTaskManager] = None
+        self._task_manager: BaseTaskManager | None = None
         self._async_lock = asyncio.Lock()
 
         # Two-phase track resolution state (bidirectional matching)
-        self._pending_tracks: Dict[
+        self._pending_tracks: dict[
             str, dict
         ] = {}  # track_added arrived, awaiting track_published
-        self._pending_publications: Dict[
+        self._pending_publications: dict[
             tuple, dict
         ] = {}  # track_published arrived, awaiting track_added
-        self._track_map: Dict[tuple, str] = {}
-        self._video_subscriber_tasks: Dict[str, asyncio.Task] = {}
-        self._participants: Dict[str, dict] = {}
+        self._track_map: dict[tuple, str] = {}
+        self._video_subscriber_tasks: dict[str, asyncio.Task] = {}
+        self._participants: dict[str, dict] = {}
         self._audio_subscribed_participants: set = set()
         self._video_subscribed_participants: set = set()
 
@@ -415,11 +418,11 @@ class GetstreamTransportClient:
             await self._callbacks.on_before_disconnect()
 
             # Cancel all video subscriber tasks
-            for task_id, task in self._video_subscriber_tasks.items():
+            for task in self._video_subscriber_tasks.values():
                 task.cancel()
                 try:
                     await task
-                except (asyncio.CancelledError, Exception):
+                except (asyncio.CancelledError, Exception):  # noqa: S110
                     pass
             self._video_subscriber_tasks.clear()
 
@@ -427,7 +430,7 @@ class GetstreamTransportClient:
             if self._connection:
                 try:
                     await asyncio.wait_for(self._connection.leave(), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.warning(
                         "Timeout leaving Stream Video call, forcing disconnect"
                     )
@@ -468,13 +471,13 @@ class GetstreamTransportClient:
         except Exception:
             logger.exception("Error sending custom event")
 
-    def get_participants(self) -> List[str]:
+    def get_participants(self) -> list[str]:
         """Get list of participant IDs in the call.
 
         Returns:
             List of participant user IDs (excluding the bot).
         """
-        return [uid for uid in self._participants.keys() if uid != self._user_id]
+        return [uid for uid in self._participants if uid != self._user_id]
 
     async def get_next_audio_frame(self):
         """Get the next audio frame from the queue.
@@ -515,7 +518,7 @@ class GetstreamTransportClient:
         await self._audio_track.write(pcm_data)
         return True
 
-    def write_video(self, image: bytes, size: tuple, format: Optional[str]) -> bool:
+    def write_video(self, image: bytes, size: tuple, format: str | None) -> bool:
         """Write a video frame to the video track.
 
         Args:
@@ -826,16 +829,19 @@ class GetstreamTransportClient:
                     self._callbacks.on_video_track_unsubscribed(user_id),
                     f"{self}::on_video_track_unsubscribed",
                 )
-        elif track_type in (
-            TrackType.TRACK_TYPE_AUDIO,
-            TrackType.TRACK_TYPE_SCREEN_SHARE_AUDIO,
+        elif (
+            track_type
+            in (
+                TrackType.TRACK_TYPE_AUDIO,
+                TrackType.TRACK_TYPE_SCREEN_SHARE_AUDIO,
+            )
+            and user_id in self._audio_subscribed_participants
         ):
-            if user_id in self._audio_subscribed_participants:
-                self._audio_subscribed_participants.discard(user_id)
-                self._create_task(
-                    self._callbacks.on_audio_track_unsubscribed(user_id),
-                    f"{self}::on_audio_track_unsubscribed",
-                )
+            self._audio_subscribed_participants.discard(user_id)
+            self._create_task(
+                self._callbacks.on_audio_track_unsubscribed(user_id),
+                f"{self}::on_audio_track_unsubscribed",
+            )
 
     def _on_call_ended(self, *args):
         """Handle call ended event."""
@@ -942,7 +948,8 @@ class GetstreamInputTransport(BaseInputTransport):
         if self._video_in_task and self._params.video_in_enabled:
             await self.cancel_task(self._video_in_task)
 
-    async def setup(self, setup: FrameProcessorSetup):
+    # Pipecat's FrameProcessor.setup() already narrows BaseObject.setup(task_manager).
+    async def setup(self, setup: FrameProcessorSetup):  # type: ignore[override]
         """Set up the input transport with shared client setup.
 
         Args:
@@ -969,13 +976,15 @@ class GetstreamInputTransport(BaseInputTransport):
 
                 if len(pipecat_audio_frame.audio) == 0:
                     continue
-
                 input_audio_frame = UserAudioRawFrame(
                     user_id=participant_id,
                     audio=pipecat_audio_frame.audio,
                     sample_rate=pipecat_audio_frame.sample_rate,
                     num_channels=pipecat_audio_frame.num_channels,
                 )
+                pts_seconds = pcm_data.pts_seconds
+                if pts_seconds is not None:
+                    input_audio_frame.pts = seconds_to_nanoseconds(pts_seconds)
                 await self.push_audio_frame(input_audio_frame)
 
     async def _video_in_task_handler(self):
@@ -1117,7 +1126,8 @@ class GetstreamOutputTransport(BaseOutputTransport):
         await super().cancel(frame)
         await self._client.disconnect()
 
-    async def setup(self, setup: FrameProcessorSetup):
+    # Pipecat's FrameProcessor.setup() already narrows BaseObject.setup(task_manager).
+    async def setup(self, setup: FrameProcessorSetup):  # type: ignore[override]
         """Set up the output transport with shared client setup.
 
         Args:
@@ -1211,11 +1221,11 @@ class GetstreamTransport(BaseTransport):
         call_type: str,
         call_id: str,
         user_id: str,
-        params: Optional[GetstreamParams] = None,
-        input_name: Optional[str] = None,
-        output_name: Optional[str] = None,
-        api_secret: Optional[str] = None,
-        token: Optional[str] = None,
+        params: GetstreamParams | None = None,
+        input_name: str | None = None,
+        output_name: str | None = None,
+        api_secret: str | None = None,
+        token: str | None = None,
     ):
         """Initialize the Stream Video transport.
 
@@ -1259,8 +1269,8 @@ class GetstreamTransport(BaseTransport):
             api_secret=api_secret,
             token=token,
         )
-        self._input: Optional[GetstreamInputTransport] = None
-        self._output: Optional[GetstreamOutputTransport] = None
+        self._input: GetstreamInputTransport | None = None
+        self._output: GetstreamOutputTransport | None = None
 
         self._register_event_handler("on_connected")
         self._register_event_handler("on_disconnected")
@@ -1317,7 +1327,7 @@ class GetstreamTransport(BaseTransport):
         if self._output:
             await self._output.queue_frame(frame, FrameDirection.DOWNSTREAM)
 
-    def get_participants(self) -> List[str]:
+    def get_participants(self) -> list[str]:
         """Get list of participant IDs in the call.
 
         Returns:

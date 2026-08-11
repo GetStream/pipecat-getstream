@@ -51,15 +51,17 @@ async def main():
         ),
     )
 
-    pipeline = Pipeline([
-        transport.input(),
-        stt,  # your STT service
-        user_aggregator,  # LLM context aggregator
-        llm,  # your LLM service
-        tts,  # your TTS service
-        transport.output(),
-        assistant_aggregator,
-    ])
+    pipeline = Pipeline(
+        [
+            transport.input(),
+            stt,  # your STT service
+            user_aggregator,  # LLM context aggregator
+            llm,  # your LLM service
+            tts,  # your TTS service
+            transport.output(),
+            assistant_aggregator,
+        ]
+    )
 
     runner = PipelineRunner()
     task = PipelineTask(pipeline, params=PipelineParams(enable_metrics=True))
@@ -126,7 +128,9 @@ helper = GetstreamRESTHelper(api_key="your-api-key", api_secret="your-api-secret
 await helper.create_user(user_id="demo-user", name="Demo User")
 
 # Create or get a call
-await helper.create_call(call_type="default", call_id="my-call", created_by_id="demo-user")
+await helper.create_call(
+    call_type="default", call_id="my-call", created_by_id="demo-user"
+)
 
 # Generate a JWT token for a user
 token = helper.create_token(user_id="demo-user", expiration=3600)
