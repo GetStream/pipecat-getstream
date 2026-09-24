@@ -23,9 +23,7 @@ from getstream.video.rtc.connection_manager import ConnectionManager
 from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType
 from getstream.video.rtc.tracks import SubscriptionConfig, TrackSubscriptionConfig
 from loguru import logger
-from pipecat.audio.utils import create_stream_resampler
 from pipecat.frames.frames import (
-    AudioRawFrame,
     CancelFrame,
     EndFrame,
     EndTaskFrame,
@@ -895,7 +893,11 @@ class GetstreamInputTransport(BaseInputTransport):
 
         self._audio_in_task: asyncio.Task | None = None
         self._video_in_task: asyncio.Task | None = None
-        self._resampler = create_stream_resampler()
+        # One resampler per participant, so their audio history and pts do not mix.
+        self._resamplers: dict[str, av.AudioResampler] = {}
+        self._transport.add_event_handler(
+            "on_audio_track_unsubscribed", self._on_audio_track_unsubscribed
+        )
 
         self._initialized = False
 
@@ -970,22 +972,10 @@ class GetstreamInputTransport(BaseInputTransport):
         async for audio_data in audio_iterator:
             if audio_data:
                 pcm_data, participant_id = audio_data
-                pipecat_audio_frame = await self._convert_stream_audio_to_pipecat(
-                    pcm_data
-                )
-
-                if len(pipecat_audio_frame.audio) == 0:
-                    continue
-                input_audio_frame = UserAudioRawFrame(
-                    user_id=participant_id,
-                    audio=pipecat_audio_frame.audio,
-                    sample_rate=pipecat_audio_frame.sample_rate,
-                    num_channels=pipecat_audio_frame.num_channels,
-                )
-                pts_seconds = pcm_data.pts_seconds
-                if pts_seconds is not None:
-                    input_audio_frame.pts = seconds_to_nanoseconds(pts_seconds)
-                await self.push_audio_frame(input_audio_frame)
+                for input_audio_frame in self._convert_stream_audio_to_pipecat(
+                    pcm_data, participant_id
+                ):
+                    await self.push_audio_frame(input_audio_frame)
 
     async def _video_in_task_handler(self):
         """Handle incoming video frames from participants."""
@@ -1005,39 +995,52 @@ class GetstreamInputTransport(BaseInputTransport):
                 )
                 await self.push_video_frame(input_video_frame)
 
-    async def _convert_stream_audio_to_pipecat(
-        self, pcm_data: PcmData
-    ) -> AudioRawFrame:
-        """Convert Stream Video PcmData to Pipecat AudioRawFrame.
+    def _convert_stream_audio_to_pipecat(
+        self, pcm_data: PcmData, participant_id: str
+    ) -> list[UserAudioRawFrame]:
+        """Convert Stream Video PcmData to Pipecat UserAudioRawFrames.
 
-        Handles int16/float32 conversion and resampling.
+        Handles s16 conversion and resampling. The resampler holds back about
+        1 ms of audio, and each frame's pts is the time of its first sample.
 
         Args:
             pcm_data: The PcmData from Stream Video SDK.
+            participant_id: The participant who sent the audio.
 
         Returns:
-            Converted AudioRawFrame for the pipeline.
+            Converted frames for the pipeline, possibly none.
         """
-        samples = pcm_data.samples
+        resampler = self._resamplers.get(participant_id)
+        if resampler is None:
+            resampler = av.AudioResampler(format="s16", rate=self.sample_rate)
+            self._resamplers[participant_id] = resampler
 
-        # Convert float32 to int16 if needed
-        if samples.dtype == np.float32:
-            samples = (samples * 32767).astype(np.int16)
-        elif samples.dtype != np.int16:
-            samples = samples.astype(np.int16)
+        av_frame = pcm_data.to_av_frame()
+        if pcm_data.time_base is None:
+            av_frame.pts = None
+        else:
+            av_frame.time_base = Fraction(pcm_data.time_base).limit_denominator()
 
-        raw_bytes = samples.tobytes()
+        frames = []
+        for resampled in resampler.resample(av_frame):
+            frame = UserAudioRawFrame(
+                user_id=participant_id,
+                audio=resampled.to_ndarray().tobytes(),
+                sample_rate=resampled.sample_rate,
+                num_channels=len(resampled.layout.channels),
+            )
+            if resampled.pts is not None and resampled.time_base is not None:
+                frame.pts = seconds_to_nanoseconds(
+                    float(resampled.pts * resampled.time_base)
+                )
+            frames.append(frame)
+        return frames
 
-        # Resample to transport input sample rate
-        audio_data = await self._resampler.resample(
-            raw_bytes, pcm_data.sample_rate, self.sample_rate
-        )
-
-        return AudioRawFrame(
-            audio=audio_data,
-            sample_rate=self.sample_rate,
-            num_channels=pcm_data.channels if hasattr(pcm_data, "channels") else 1,
-        )
+    def _on_audio_track_unsubscribed(
+        self, _transport: BaseTransport, participant_id: str
+    ):
+        """Drop the participant's resampler, because a new audio track restarts its pts."""
+        self._resamplers.pop(participant_id, None)
 
 
 class GetstreamOutputTransport(BaseOutputTransport):

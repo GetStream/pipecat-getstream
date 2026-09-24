@@ -7,6 +7,7 @@ Two focused tests:
 """
 
 import asyncio
+import contextlib
 import os
 import time
 import uuid
@@ -116,6 +117,120 @@ class TestGetstreamInputTransport:
         assert all(isinstance(frame, UserAudioRawFrame) for frame in frames)
         assert [frame.user_id for frame in frames] == ["user-A"] * 3
         assert [frame.pts for frame in frames] == [0, 20_000_000, 40_000_000]
+
+    async def test_resampled_frames_carry_pts_of_their_first_sample(
+        self, create_input_transport, make_pcm_data
+    ):
+        """After resampling, each frame's pts is the time of its first sample."""
+        client, received = await create_input_transport(16000)
+        # Each input sample holds its own 48kHz index, so its value gives its time.
+        ramp = np.arange(9600, dtype=np.int16)
+        for start in range(0, 9600, 960):
+            client._on_audio(
+                make_pcm_data("user-A", pts=start, samples=ramp[start : start + 960])
+            )
+
+        frames = []
+        with contextlib.suppress(TimeoutError):
+            while True:
+                frames.append(await asyncio.wait_for(received.get(), timeout=0.5))
+
+        assert frames
+        for frame in frames:
+            first_sample = int(np.frombuffer(frame.audio, dtype=np.int16)[0])
+            first_sample_ns = first_sample * 1_000_000_000 // 48000
+            assert abs(frame.pts - first_sample_ns) <= 1_000_000
+
+    async def test_resampled_audio_keeps_the_end_of_speech_after_a_pause(
+        self, create_input_transport, make_pcm_data
+    ):
+        """The end of speech before a pause is delivered when the next audio arrives."""
+        client, received = await create_input_transport(16000)
+        ramp = np.arange(9600, dtype=np.int16)
+        for start in range(0, 9600, 960):
+            client._on_audio(
+                make_pcm_data("user-A", pts=start, samples=ramp[start : start + 960])
+            )
+        await asyncio.sleep(0.5)
+        client._on_audio(make_pcm_data("user-A", pts=9600))
+
+        frames = []
+        with contextlib.suppress(TimeoutError):
+            while True:
+                frames.append(await asyncio.wait_for(received.get(), timeout=0.5))
+
+        audio = np.concatenate(
+            [np.frombuffer(frame.audio, dtype=np.int16) for frame in frames]
+        )
+        # The last speech sample is 9599; allow 1 ms (48 input samples) for the filter edge.
+        assert audio.max() >= 9599 - 48
+
+    async def test_participants_are_resampled_separately(
+        self, create_input_transport, make_pcm_data
+    ):
+        """Resampled audio of one participant contains no samples of another."""
+        client, received = await create_input_transport(16000)
+        ramp = np.arange(9600, dtype=np.int16)
+        for start in range(0, 9600, 960):
+            client._on_audio(
+                make_pcm_data("user-A", pts=start, samples=ramp[start : start + 960])
+            )
+            client._on_audio(
+                make_pcm_data(
+                    "user-B", pts=start, samples=np.full(960, -10000, dtype=np.int16)
+                )
+            )
+
+        frames = []
+        with contextlib.suppress(TimeoutError):
+            while True:
+                frames.append(await asyncio.wait_for(received.get(), timeout=0.5))
+
+        audio_a = np.concatenate(
+            [
+                np.frombuffer(frame.audio, dtype=np.int16)
+                for frame in frames
+                if frame.user_id == "user-A"
+            ]
+        )
+        assert audio_a.min() > -1000
+
+    async def test_audio_after_participant_rejoins_has_no_old_audio(
+        self, create_input_transport, make_pcm_data, make_participant_event
+    ):
+        """After a participant leaves, their next audio has correct pts and no audio from before."""
+        client, received = await create_input_transport(16000)
+        ramp = np.arange(9600, dtype=np.int16)
+        for start in range(0, 9600, 960):
+            client._on_audio(
+                make_pcm_data(
+                    "user-A", pts=48000 + start, samples=ramp[start : start + 960]
+                )
+            )
+        with contextlib.suppress(TimeoutError):
+            while True:
+                await asyncio.wait_for(received.get(), timeout=0.5)
+
+        client._on_participant_left(make_participant_event("user-A"))
+        await asyncio.sleep(0.1)
+        # The new track of the rejoined participant starts its pts from 0 again.
+        for start in range(0, 9600, 960):
+            client._on_audio(
+                make_pcm_data(
+                    "user-A", pts=start, samples=np.full(960, -10000, dtype=np.int16)
+                )
+            )
+
+        frames = []
+        with contextlib.suppress(TimeoutError):
+            while True:
+                frames.append(await asyncio.wait_for(received.get(), timeout=0.5))
+
+        audio = np.concatenate(
+            [np.frombuffer(frame.audio, dtype=np.int16) for frame in frames]
+        )
+        assert frames[0].pts == 0
+        assert audio.max() < 1000
 
 
 class TestGetstreamTransport:
