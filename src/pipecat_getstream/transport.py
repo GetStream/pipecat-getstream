@@ -21,6 +21,7 @@ from getstream.video.async_call import Call
 from getstream.video.rtc import AudioStreamTrack, PcmData
 from getstream.video.rtc.connection_manager import ConnectionManager
 from getstream.video.rtc.pb.stream.video.sfu.models.models_pb2 import TrackType
+from getstream.video.rtc.track_util import FrameResampler
 from getstream.video.rtc.tracks import SubscriptionConfig, TrackSubscriptionConfig
 from loguru import logger
 from pipecat.frames.frames import (
@@ -44,7 +45,6 @@ from pipecat.transports.base_input import BaseInputTransport
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.utils.asyncio.task_manager import BaseTaskManager
-from pipecat.utils.time import seconds_to_nanoseconds
 from pydantic import BaseModel
 
 _PIL_TO_PYAV_FORMAT = {
@@ -893,10 +893,10 @@ class GetstreamInputTransport(BaseInputTransport):
 
         self._audio_in_task: asyncio.Task | None = None
         self._video_in_task: asyncio.Task | None = None
-        # One resampler per participant, so their audio history and pts do not mix.
-        self._resamplers: dict[str, av.AudioResampler] = {}
+        # One resampler per participant session, so their audio history and pts do not mix.
+        self._resamplers: dict[tuple[str, str], FrameResampler] = {}
         self._transport.add_event_handler(
-            "on_audio_track_unsubscribed", self._on_audio_track_unsubscribed
+            "on_participant_left", self._on_participant_left
         )
 
         self._initialized = False
@@ -1010,19 +1010,17 @@ class GetstreamInputTransport(BaseInputTransport):
         Returns:
             Converted frames for the pipeline, possibly none.
         """
-        resampler = self._resamplers.get(participant_id)
+        # A rejoined participant gets a new session, so old audio cannot reach its resampler.
+        key = (participant_id, pcm_data.participant.session_id)
+        resampler = self._resamplers.get(key)
         if resampler is None:
-            resampler = av.AudioResampler(format="s16", rate=self.sample_rate)
-            self._resamplers[participant_id] = resampler
-
-        av_frame = pcm_data.to_av_frame()
-        if pcm_data.time_base is None:
-            av_frame.pts = None
-        else:
-            av_frame.time_base = Fraction(pcm_data.time_base).limit_denominator()
+            resampler = FrameResampler(
+                rate=self.sample_rate, layout="mono", format="s16", frame_size=0
+            )
+            self._resamplers[key] = resampler
 
         frames = []
-        for resampled in resampler.resample(av_frame):
+        for resampled in resampler.resample(pcm_data):
             frame = UserAudioRawFrame(
                 user_id=participant_id,
                 audio=resampled.to_ndarray().tobytes(),
@@ -1030,17 +1028,19 @@ class GetstreamInputTransport(BaseInputTransport):
                 num_channels=len(resampled.layout.channels),
             )
             if resampled.pts is not None and resampled.time_base is not None:
-                frame.pts = seconds_to_nanoseconds(
-                    float(resampled.pts * resampled.time_base)
-                )
+                frame.pts = int(resampled.pts * resampled.time_base * 1_000_000_000)
             frames.append(frame)
         return frames
 
-    def _on_audio_track_unsubscribed(
-        self, _transport: BaseTransport, participant_id: str
+    def _on_participant_left(
+        self, _transport: BaseTransport, participant_id: str, _reason: str
     ):
-        """Drop the participant's resampler, because a new audio track restarts its pts."""
-        self._resamplers.pop(participant_id, None)
+        """Drop the resamplers of the participant's sessions."""
+        self._resamplers = {
+            key: resampler
+            for key, resampler in self._resamplers.items()
+            if key[0] != participant_id
+        }
 
 
 class GetstreamOutputTransport(BaseOutputTransport):

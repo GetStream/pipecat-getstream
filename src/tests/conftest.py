@@ -139,20 +139,21 @@ def make_track_unpublished_event(make_participant):
 
 @pytest.fixture()
 def make_pcm_data(make_participant):
-    """Factory that creates a 48kHz PcmData chunk from a participant (20ms of silence by default)."""
+    """Factory that creates a PcmData chunk from a participant (20ms of 48kHz silence by default)."""
 
     def _factory(
         user_id: str,
         session_id: str = "session-1",
         pts: int | None = None,
         samples: np.ndarray | None = None,
+        sample_rate: int = 48000,
     ) -> PcmData:
         return PcmData(
-            sample_rate=48000,
+            sample_rate=sample_rate,
             format="s16",
             samples=np.zeros(960, dtype=np.int16) if samples is None else samples,
             pts=pts,
-            time_base=1 / 48000,
+            time_base=1 / sample_rate,
             participant=make_participant(user_id, session_id),
         )
 
