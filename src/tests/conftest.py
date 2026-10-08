@@ -139,19 +139,21 @@ def make_track_unpublished_event(make_participant):
 
 @pytest.fixture()
 def make_pcm_data(make_participant):
-    """Factory that creates a 20ms silent 48kHz PcmData chunk from a participant."""
+    """Factory that creates a PcmData chunk from a participant (20ms of 48kHz silence by default)."""
 
     def _factory(
         user_id: str,
         session_id: str = "session-1",
         pts: int | None = None,
+        samples: np.ndarray | None = None,
+        sample_rate: int = 48000,
     ) -> PcmData:
         return PcmData(
-            sample_rate=48000,
+            sample_rate=sample_rate,
             format="s16",
-            samples=np.zeros(960, dtype=np.int16),
+            samples=np.zeros(960, dtype=np.int16) if samples is None else samples,
             pts=pts,
-            time_base=1 / 48000,
+            time_base=1 / sample_rate,
             participant=make_participant(user_id, session_id),
         )
 
@@ -189,37 +191,52 @@ async def run_pipeline():
 
 
 @pytest.fixture()
-async def input_transport(create_callbacks, run_pipeline):
-    """A started GetstreamInputTransport's client and a downstream frame queue.
+def create_input_transport(run_pipeline):
+    """Factory that starts a GetstreamInputTransport and returns its client and a downstream frame queue.
 
     The client skips the SFU join, so audio can be fed in with `client._on_audio()`
     and read back from the queue as the transport pushes it downstream.
+    The client reports its events to the transport, as the real client does.
     """
-    params = GetstreamParams(audio_in_enabled=True, audio_in_sample_rate=48000)
-    transport = GetstreamTransport(
-        api_key="test-key",
-        token="test-token",
-        call_type="default",
-        call_id="test-call",
-        user_id="bot-user",
-        params=params,
-    )
-    client = _OfflineClient(
-        api_key="test-key",
-        token="test-token",
-        call_type="default",
-        call_id="test-call",
-        user_id="bot-user",
-        params=params,
-        callbacks=create_callbacks(),
-        transport_name="test-transport",
-    )
-    input_t = GetstreamInputTransport(transport, client, params)
 
-    received: asyncio.Queue = asyncio.Queue()
-    sink = QueuedFrameProcessor(
-        queue=received, queue_direction=FrameDirection.DOWNSTREAM
-    )
-    await run_pipeline(input_t, sink)
+    async def _factory(
+        sample_rate: int,
+    ) -> tuple[GetstreamTransportClient, asyncio.Queue]:
+        params = GetstreamParams(
+            audio_in_enabled=True, audio_in_sample_rate=sample_rate
+        )
+        transport = GetstreamTransport(
+            api_key="test-key",
+            token="test-token",
+            call_type="default",
+            call_id="test-call",
+            user_id="bot-user",
+            params=params,
+        )
+        client = _OfflineClient(
+            api_key="test-key",
+            token="test-token",
+            call_type="default",
+            call_id="test-call",
+            user_id="bot-user",
+            params=params,
+            callbacks=transport._client._callbacks,
+            transport_name="test-transport",
+        )
+        input_t = GetstreamInputTransport(transport, client, params)
 
-    return client, received
+        received: asyncio.Queue = asyncio.Queue()
+        sink = QueuedFrameProcessor(
+            queue=received, queue_direction=FrameDirection.DOWNSTREAM
+        )
+        await run_pipeline(input_t, sink)
+
+        return client, received
+
+    return _factory
+
+
+@pytest.fixture()
+async def input_transport(create_input_transport):
+    """A started 48kHz GetstreamInputTransport's client and a downstream frame queue."""
+    return await create_input_transport(48000)
