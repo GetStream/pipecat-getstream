@@ -25,6 +25,7 @@ from pipecat_getstream.transport import (
     GetstreamParams,
     GetstreamTransport,
     GetstreamTransportClient,
+    PipecatVideoStreamTrack,
 )
 from pipecat_getstream.utils import GetstreamRESTHelper
 
@@ -335,6 +336,15 @@ class TestGetstreamTransport:
                 call_id="c",
                 user_id="u",
             )
+
+
+class TestPipecatVideoStreamTrack:
+    async def test_placeholder_frame_has_configured_size(self):
+        track = PipecatVideoStreamTrack(width=1280, height=720)
+
+        frame = await track.recv()
+
+        assert (frame.width, frame.height) == (1280, 720)
 
 
 @pytest.mark.skipif(
