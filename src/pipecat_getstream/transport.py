@@ -107,13 +107,17 @@ class PipecatVideoStreamTrack(MediaStreamTrack):
 
     kind = "video"
 
-    def __init__(self, framerate: int = 30):
+    def __init__(self, width: int, height: int, framerate: int = 30):
         """Initialize the video stream track.
 
         Args:
+            width: Width of the placeholder frame in pixels.
+            height: Height of the placeholder frame in pixels.
             framerate: Target video framerate in FPS.
         """
         super().__init__()
+        self._width = width
+        self._height = height
         self._framerate = framerate
         self._queue: asyncio.Queue = asyncio.Queue()
         self._start_time: float | None = None
@@ -183,8 +187,9 @@ class PipecatVideoStreamTrack(MediaStreamTrack):
                 self._pts += int(self._time_base_den / self._framerate)
                 return held
             else:
-                # Send a small black frame as placeholder
-                black = np.zeros((480, 640, 3), dtype=np.uint8)
+                # Send a black frame as placeholder. The SDK reads the size of
+                # the first frame and sends it to the SFU as the track dimension.
+                black = np.zeros((self._height, self._width, 3), dtype=np.uint8)
                 frame = av.VideoFrame.from_ndarray(black, format="rgb24")
                 frame.pts = self._pts
                 frame.time_base = Fraction(1, self._time_base_den)
@@ -378,7 +383,9 @@ class GetstreamTransportClient:
                 # Create video track if video output is enabled
                 if self._params.video_out_enabled:
                     self._video_track = PipecatVideoStreamTrack(
-                        framerate=self._params.video_out_framerate
+                        width=self._params.video_out_width,
+                        height=self._params.video_out_height,
+                        framerate=self._params.video_out_framerate,
                     )
                     await self._connection.add_tracks(
                         audio=self._audio_track, video=self._video_track
