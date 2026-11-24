@@ -173,7 +173,7 @@ async def on_first_participant_joined(transport, participant_id):
 
 
 @transport.event_handler("on_stream_custom_event")
-async def on_first_participant_joined(transport, payload):
+async def on_stream_custom_event(transport, payload):
     print(f"Received custom event: {payload}")
 ```
 
@@ -213,6 +213,8 @@ export STREAM_CALL_ID="my-call-id"
 export STREAM_USER_ID="pipecat-bot"
 ```
 
+`STREAM_BASE_URL` is the URL of the web app you join the call from. The example opens `<STREAM_BASE_URL>/join/<call-id>` in your browser.
+
 ### 2. Run
 
 ```bash
@@ -223,9 +225,11 @@ The bot will join the call and automatically open a browser window so you can jo
 
 ## Compatibility
 
-- **Python:** 3.10>=, <3.14
-- **Pipecat:** `>= 0.0.108`
-- **GetStream SDK:** `>= 3.4.0, < 4`
+- **Python:** `>= 3.11`
+- **Pipecat:** `>= 0.0.108`. Tested with Pipecat v1.17.0.
+- **GetStream SDK:** `>= 6.1.1, < 7`
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## License
 
